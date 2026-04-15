@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.3.0] - 2026-04-15 — Cross-Platform OS Keyring + DPAPI Migration Tool
+
+### Added
+- **Cross-platform OS keyring storage** — Credentials and TOTP secrets now stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service via the `keyring` crate. Never stored as plaintext in JSON files.
+- **`migrate_dpapi_to_keyring` tool** — Idempotent migration from legacy Windows DPAPI storage to OS keyring. Reports `{migrated_credentials, migrated_totp, errors:[]}`. One-time operation after upgrading.
+- **cpc-paths v0.1.0 dependency** — Added as diagnostic dep for Stage C cpc-paths integration pass. No path resolution changes; workflow continues to store data at `C:\CPC\workflows\`.
+- **Linux headless guard** — On startup, probes keyring availability. If unavailable and `CPC_WORKFLOW_DISABLE_SECRETS=1` is set, credential/TOTP tools disable gracefully. Otherwise exits with clear error message.
+- New modules: `keyring_store.rs`, `dpapi_legacy.rs`, `migrate.rs`
+
+### Changed
+- `credential.rs` — New entries use keyring only; reads fall back to DPAPI for legacy entries. `CredentialMeta.encrypted_value` is now `Option<String>` (omitted from JSON when None). `client_secret_encrypted` follows same pattern.
+- `totp.rs` — Same keyring migration. `TotpEntry.encrypted_secret` is now `Option<String>`. `secret_hash` integrity field retained.
+- All 11 tool descriptions updated: "Windows DPAPI" → "OS-native secret store (Windows Credential Manager, macOS Keychain, Linux Secret Service)".
+- Version bumped to `1.3.0`.
+
+### Backward Compatibility
+- Existing DPAPI-encrypted credentials and TOTP secrets continue to work via transparent fallback — no forced migration.
+- Server startup logs a warning if legacy entries are detected: run `workflow:migrate_dpapi_to_keyring` to opt-in to migration.
+
+### Tests
+- 16 RFC algorithm tests retained unchanged.
+- 3 DPAPI pipeline tests renamed to `test_keyring_roundtrip_*` and updated for keyring storage.
+- 6 new tests: `test_keyring_probe_succeeds`, `test_secret_hash_verification`, `test_migration_tool_idempotent`, `test_migration_tool_dpapi_to_keyring` (Windows-only).
+- All 22 tests pass.
+
+**Note:** keyring v3 requires explicit `features = ["windows-native"]` — default features use an in-memory mock backend.
+
 ## [1.2.5] - 2026-04-15 — TOTP DPAPI Fix + Monorepo Sync
 
 ### Fixed

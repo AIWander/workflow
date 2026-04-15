@@ -1,6 +1,8 @@
-//! Credential Vault — DPAPI-encrypted credential storage
+//! Credential Vault — OS-native keyring storage (Windows Credential Manager,
+//! macOS Keychain, Linux Secret Service). Back-compat read from legacy DPAPI entries.
 //! 5 tools: credential_store, credential_get, credential_list, credential_delete, credential_refresh
 
+use crate::keyring_store;
 use crate::storage::JsonStore;
 use anyhow::Result;
 use chrono::Utc;
@@ -21,20 +23,26 @@ pub struct CredentialMeta {
     #[serde(default)]
     pub notes: Option<String>,
     pub created_at: String,
-    /// Base64-encoded DPAPI-encrypted value
-    pub encrypted_value: String,
+    /// Legacy DPAPI-encrypted value. Present only in pre-v1.3.0 entries.
+    /// Reads fall back to this when keyring has no entry. Run migrate_dpapi_to_keyring to clear.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypted_value: Option<String>,
     /// For OAuth refresh
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
-    #[serde(default)]
+    /// Legacy DPAPI-encrypted client secret. Cleared on migrate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret_encrypted: Option<String>,
 }
 
-const FILE: &str = "credentials.json";
+pub const FILE: &str = "credentials.json";
 
 pub fn handle(tool: &str, args: &Value, store: &JsonStore) -> Value {
+    if keyring_store::is_disabled() {
+        return json!({"error": "Credential tools are disabled — keyring unavailable on this system. Set CPC_WORKFLOW_DISABLE_SECRETS=1 suppresses startup exit but disables these tools."});
+    }
     match tool {
         "credential_store" => credential_store(args, store),
         "credential_get" => credential_get(args, store),
@@ -45,17 +53,29 @@ pub fn handle(tool: &str, args: &Value, store: &JsonStore) -> Value {
     }
 }
 
-/// Helper: get a decrypted credential value by name (used by api_store)
+/// Get a decrypted credential value by name (used by api_store and credential_refresh).
+/// Tries keyring first; falls back to DPAPI decrypt of legacy encrypted_value if needed.
 pub fn get_credential_value(name: &str, store: &JsonStore) -> Result<String> {
+    // Try keyring
+    if let Some(v) = keyring_store::get_or_none("cred", name)? {
+        return Ok(v);
+    }
+    // Fall back to legacy DPAPI
     let data: CredentialStore = store.load_or_default(FILE);
     let cred = data.credentials.iter().find(|c| c.name == name)
         .ok_or_else(|| anyhow::anyhow!("Credential '{}' not found", name))?;
-    let encrypted = base64_decode(&cred.encrypted_value)?;
-    let decrypted = dpapi_decrypt(&encrypted)?;
-    Ok(String::from_utf8(decrypted)?)
+    match &cred.encrypted_value {
+        Some(enc) => {
+            let bytes = base64_decode(enc)?;
+            let decrypted = crate::dpapi_legacy::dpapi_decrypt(&bytes)?;
+            let trimmed = crate::dpapi_legacy::strip_trailing_nulls(&decrypted);
+            Ok(String::from_utf8(trimmed)?)
+        }
+        None => Err(anyhow::anyhow!("Credential '{}' has no value in keyring or legacy store", name)),
+    }
 }
 
-/// Helper: get credential type by name
+/// Get credential type by name.
 pub fn get_credential_type(name: &str, store: &JsonStore) -> Option<String> {
     let data: CredentialStore = store.load_or_default(FILE);
     data.credentials.iter().find(|c| c.name == name).map(|c| c.credential_type.clone())
@@ -74,12 +94,10 @@ fn credential_store(args: &Value, store: &JsonStore) -> Value {
     let service = args.get("service").and_then(|v| v.as_str()).map(String::from);
     let notes = args.get("notes").and_then(|v| v.as_str()).map(String::from);
 
-    // Encrypt with DPAPI
-    let encrypted = match dpapi_encrypt(value.as_bytes()) {
-        Ok(e) => e,
-        Err(e) => return json!({"error": format!("Encryption failed: {}", e)}),
-    };
-    let encoded = base64_encode(&encrypted);
+    // Store secret in OS keyring
+    if let Err(e) = keyring_store::set("cred", &name, value) {
+        return json!({"error": format!("Keyring store failed: {}", e)});
+    }
 
     let mut data: CredentialStore = store.load_or_default(FILE);
     data.credentials.retain(|c| c.name != name);
@@ -90,15 +108,15 @@ fn credential_store(args: &Value, store: &JsonStore) -> Value {
         service,
         notes,
         created_at: Utc::now().to_rfc3339(),
-        encrypted_value: encoded,
+        encrypted_value: None, // new entries use keyring only
         token_url: None,
         client_id: None,
         client_secret_encrypted: None,
     });
 
     match store.save(FILE, &data) {
-        Ok(_) => json!({"success": true, "name": name, "hint": "Value encrypted via DPAPI — only this Windows user can decrypt it."}),
-        Err(e) => json!({"error": format!("Failed to save: {}", e)}),
+        Ok(_) => json!({"success": true, "name": name, "hint": "Value stored in OS-native secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service)."}),
+        Err(e) => json!({"error": format!("Failed to save metadata: {}", e)}),
     }
 }
 
@@ -114,17 +132,10 @@ fn credential_get(args: &Value, store: &JsonStore) -> Value {
         None => return json!({"error": format!("Credential '{}' not found", name)}),
     };
 
-    let encrypted = match base64_decode(&cred.encrypted_value) {
-        Ok(e) => e,
-        Err(e) => return json!({"error": format!("Base64 decode failed: {}", e)}),
+    let value = match get_credential_value(name, store) {
+        Ok(v) => v,
+        Err(e) => return json!({"error": format!("Failed to read credential: {}", e)}),
     };
-
-    let decrypted = match dpapi_decrypt(&encrypted) {
-        Ok(d) => d,
-        Err(e) => return json!({"error": format!("Decryption failed: {}", e)}),
-    };
-
-    let value = String::from_utf8(decrypted).unwrap_or_else(|_| "<binary>".into());
 
     json!({
         "name": cred.name,
@@ -151,6 +162,7 @@ fn credential_list(args: &Value, store: &JsonStore) -> Value {
             "credential_type": c.credential_type,
             "service": c.service,
             "created_at": c.created_at,
+            "legacy_dpapi": c.encrypted_value.is_some(),
         }))
         .collect();
 
@@ -171,6 +183,10 @@ fn credential_delete(args: &Value, store: &JsonStore) -> Value {
         return json!({"error": format!("Credential '{}' not found", name)});
     }
 
+    // Remove from keyring (no-op if not there)
+    let _ = keyring_store::delete("cred", name);
+    let _ = keyring_store::delete("cred", &format!("{}:client_secret", name));
+
     match store.save(FILE, &data) {
         Ok(_) => json!({"success": true, "deleted": name}),
         Err(e) => json!({"error": format!("Failed to save: {}", e)}),
@@ -189,7 +205,7 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
         None => return json!({"error": format!("Credential '{}' not found", name)}),
     };
 
-    // Update token_url/client_id if provided (stored for future refreshes)
+    // Update token_url/client_id if provided
     if let Some(url) = args.get("token_url").and_then(|v| v.as_str()) {
         cred.token_url = Some(url.to_string());
     }
@@ -197,9 +213,11 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
         cred.client_id = Some(cid.to_string());
     }
     if let Some(cs) = args.get("client_secret").and_then(|v| v.as_str()) {
-        if let Ok(enc) = dpapi_encrypt(cs.as_bytes()) {
-            cred.client_secret_encrypted = Some(base64_encode(&enc));
+        if let Err(e) = keyring_store::set("cred", &format!("{}:client_secret", name), cs) {
+            return json!({"error": format!("Failed to store client_secret: {}", e)});
         }
+        // Clear legacy DPAPI field if it was there
+        cred.client_secret_encrypted = None;
     }
 
     let token_url = match &cred.token_url {
@@ -211,22 +229,28 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
         None => return json!({"error": "client_id is required (provide on first refresh, stored after)"}),
     };
 
-    // Get current value as refresh token
-    let refresh_token = match base64_decode(&cred.encrypted_value)
-        .and_then(|e| dpapi_decrypt(&e))
-        .and_then(|d| String::from_utf8(d).map_err(|e| anyhow::anyhow!("{}", e)))
-    {
+    let _ = store.save(FILE, &data);
+
+    // Read current value (refresh token) via keyring with DPAPI fallback
+    let refresh_token = match get_credential_value(&name, store) {
         Ok(v) => v,
         Err(e) => return json!({"error": format!("Failed to read current credential: {}", e)}),
     };
 
-    let client_secret = cred.client_secret_encrypted.as_ref().and_then(|enc| {
-        base64_decode(enc).ok().and_then(|e| dpapi_decrypt(&e).ok())
-            .and_then(|d| String::from_utf8(d).ok())
-    });
+    // Read client_secret: try keyring first, fall back to legacy DPAPI
+    let client_secret = keyring_store::get_or_none("cred", &format!("{}:client_secret", &name))
+        .ok().flatten()
+        .or_else(|| {
+            let data: CredentialStore = store.load_or_default(FILE);
+            let cred = data.credentials.iter().find(|c| c.name == name)?;
+            let enc = cred.client_secret_encrypted.as_ref()?;
+            let bytes = base64_decode(enc).ok()?;
+            let decrypted = crate::dpapi_legacy::dpapi_decrypt(&bytes).ok()?;
+            let trimmed = crate::dpapi_legacy::strip_trailing_nulls(&decrypted);
+            String::from_utf8(trimmed).ok()
+        });
 
-    let cred_name = cred.name.clone();
-    let _ = store.save(FILE, &data);
+    let cred_name = name.clone();
 
     // Do the OAuth refresh
     let rt = tokio::runtime::Handle::current();
@@ -251,14 +275,17 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
     });
 
     if let Some(new_token) = result.get("access_token").and_then(|v| v.as_str()) {
-        // Store the new token
-        if let Ok(encrypted) = dpapi_encrypt(new_token.as_bytes()) {
-            let mut data: CredentialStore = store.load_or_default(FILE);
-            if let Some(cred) = data.credentials.iter_mut().find(|c| c.name == cred_name) {
-                cred.encrypted_value = base64_encode(&encrypted);
-            }
-            let _ = store.save(FILE, &data);
+        // Store the new token in keyring
+        if let Err(e) = keyring_store::set("cred", &cred_name, new_token) {
+            return json!({"error": format!("Failed to store refreshed token: {}", e)});
         }
+        // If the JSON entry had a legacy encrypted_value, clear it since keyring now has the value
+        let mut data: CredentialStore = store.load_or_default(FILE);
+        if let Some(cred) = data.credentials.iter_mut().find(|c| c.name == cred_name) {
+            cred.encrypted_value = None;
+        }
+        let _ = store.save(FILE, &data);
+
         let expiry = result.get("expires_in").and_then(|v| v.as_u64()).unwrap_or(0);
         json!({
             "refreshed": true,
@@ -274,93 +301,22 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
     }
 }
 
-// ============ DPAPI Helpers ============
-
-#[cfg(windows)]
-pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
-    use windows::Win32::Security::Cryptography::{
-        CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
-    };
-
-    let mut input = CRYPT_INTEGER_BLOB {
-        cbData: plaintext.len() as u32,
-        pbData: plaintext.as_ptr() as *mut u8,
-    };
-    let mut output = CRYPT_INTEGER_BLOB {
-        cbData: 0,
-        pbData: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        CryptProtectData(
-            &mut input,
-            None,
-            None,
-            None,
-            None,
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
-        )?;
-
-        let result = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output.pbData as *mut _));
-        Ok(result)
-    }
-}
-
-#[cfg(windows)]
-pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
-    use windows::Win32::Security::Cryptography::{
-        CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
-    };
-
-    let mut input = CRYPT_INTEGER_BLOB {
-        cbData: ciphertext.len() as u32,
-        pbData: ciphertext.as_ptr() as *mut u8,
-    };
-    let mut output = CRYPT_INTEGER_BLOB {
-        cbData: 0,
-        pbData: std::ptr::null_mut(),
-    };
-
-    unsafe {
-        CryptUnprotectData(
-            &mut input,
-            None,
-            None,
-            None,
-            None,
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
-        )?;
-
-        let result = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output.pbData as *mut _));
-        Ok(result)
-    }
-}
-
-#[cfg(not(windows))]
-pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
-    // Non-Windows fallback: no encryption (development only)
-    Ok(plaintext.to_vec())
-}
-
-#[cfg(not(windows))]
-pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
-    Ok(ciphertext.to_vec())
-}
+// ============ Base64 Helpers (still used by tests and legacy compat) ============
 
 pub fn base64_encode(data: &[u8]) -> String {
-    // Phase C fix3: replaced custom base64 with data_encoding::BASE64 to eliminate
-    // potential encode/decode roundtrip corruption (suspected root cause of TOTP bug).
     data_encoding::BASE64.encode(data)
 }
 
 pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
-    // Phase C fix3: replaced custom base64 with data_encoding::BASE64.
-    // Tolerant decode: strip whitespace before decoding.
     let clean: String = s.trim().chars().filter(|c| !c.is_whitespace()).collect();
     data_encoding::BASE64.decode(clean.as_bytes())
         .map_err(|e| anyhow::anyhow!("Base64 decode error: {}", e))
+}
+
+// ============ Legacy detection ============
+
+/// Returns true if any credential entry still has a legacy DPAPI-encrypted value.
+pub fn has_legacy_entries(store: &JsonStore) -> bool {
+    let data: CredentialStore = store.load_or_default(FILE);
+    data.credentials.iter().any(|c| c.encrypted_value.is_some() || c.client_secret_encrypted.is_some())
 }

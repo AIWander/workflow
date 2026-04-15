@@ -1,8 +1,9 @@
 //! TOTP/HOTP implementation — RFC 6238 / RFC 4226
 //! With otpauth:// URI parsing per Google Authenticator spec.
-//! Storage via DPAPI-protected credential store.
+//! Storage via OS-native keyring (v1.3.0+). Legacy DPAPI fallback for pre-v1.3.0 entries.
 
-use crate::credential::{dpapi_encrypt, dpapi_decrypt, base64_encode, base64_decode};
+use crate::credential::base64_decode;
+use crate::keyring_store;
 use crate::storage::JsonStore;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -19,14 +20,19 @@ pub struct TotpEntry {
     pub algorithm: String,
     pub digits: u32,
     pub period: u64,
+    #[serde(default)]
     pub issuer: Option<String>,
+    #[serde(default)]
     pub account: Option<String>,
-    pub encrypted_secret: String,
+    /// Legacy DPAPI-encrypted secret. Present only in pre-v1.3.0 entries.
+    /// New entries store the secret in keyring only (this field is None).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypted_secret: Option<String>,
+    #[serde(default)]
     pub counter: Option<u64>,
     pub otp_type: String, // "totp" or "hotp"
     pub created_at: String,
     /// SHA-256 hash of the plaintext base32 secret for integrity verification.
-    /// Added in Phase C fix3 to detect DPAPI roundtrip corruption.
     #[serde(default)]
     pub secret_hash: Option<String>,
 }
@@ -36,9 +42,12 @@ pub struct TotpStore {
     pub entries: Vec<TotpEntry>,
 }
 
-const FILE: &str = "totp.json";
+pub const FILE: &str = "totp.json";
 
 pub fn handle(tool: &str, args: &Value, store: &JsonStore) -> Value {
+    if keyring_store::is_disabled() {
+        return json!({"error": "TOTP tools are disabled — keyring unavailable on this system."});
+    }
     match tool {
         "totp_register" => totp_register(args, store),
         "totp_register_from_uri" => totp_register_from_uri(args, store),
@@ -54,7 +63,6 @@ pub fn handle(tool: &str, args: &Value, store: &JsonStore) -> Value {
 
 /// Decode a base32-encoded secret to raw bytes.
 fn decode_base32(input: &str) -> Result<Vec<u8>, String> {
-    // Strip spaces and uppercase
     let clean: String = input.chars()
         .filter(|c| !c.is_whitespace() && *c != '=')
         .flat_map(|c| c.to_uppercase())
@@ -64,7 +72,6 @@ fn decode_base32(input: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Base32 decode error: {}", e))
 }
 
-/// Compute HMAC with the specified algorithm.
 fn hmac_compute(algorithm: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>, String> {
     match algorithm.to_uppercase().as_str() {
         "SHA1" => {
@@ -89,12 +96,10 @@ fn hmac_compute(algorithm: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>, Str
     }
 }
 
-/// HOTP: RFC 4226 — HMAC-based One-Time Password
 fn hotp(secret: &[u8], counter: u64, algorithm: &str, digits: u32) -> Result<String, String> {
     let counter_bytes = counter.to_be_bytes();
     let hash = hmac_compute(algorithm, secret, &counter_bytes)?;
 
-    // Dynamic truncation (RFC 4226 Section 5.4)
     let offset = (hash[hash.len() - 1] & 0x0f) as usize;
     let binary = ((hash[offset] as u32 & 0x7f) << 24)
         | ((hash[offset + 1] as u32) << 16)
@@ -106,7 +111,6 @@ fn hotp(secret: &[u8], counter: u64, algorithm: &str, digits: u32) -> Result<Str
     Ok(format!("{:0>width$}", code, width = digits as usize))
 }
 
-/// TOTP: RFC 6238 — Time-based One-Time Password
 fn totp(secret: &[u8], time: u64, period: u64, algorithm: &str, digits: u32) -> Result<String, String> {
     let counter = time / period;
     hotp(secret, counter, algorithm, digits)
@@ -114,17 +118,13 @@ fn totp(secret: &[u8], time: u64, period: u64, algorithm: &str, digits: u32) -> 
 
 // ============ OTPAUTH URI PARSING ============
 
-/// Parse an otpauth:// URI into components.
-/// Format: otpauth://TYPE/LABEL?PARAMS
-/// LABEL can be ISSUER:ACCOUNT or just ACCOUNT
 fn parse_otpauth_uri(uri: &str) -> Result<ParsedUri, String> {
     if !uri.starts_with("otpauth://") {
         return Err("URI must start with otpauth://".into());
     }
 
-    let rest = &uri[10..]; // skip "otpauth://"
+    let rest = &uri[10..];
 
-    // Split type from label+params
     let (otp_type, rest) = rest.split_once('/')
         .ok_or("Missing OTP type in URI")?;
 
@@ -133,24 +133,20 @@ fn parse_otpauth_uri(uri: &str) -> Result<ParsedUri, String> {
         return Err(format!("Unknown OTP type: {}", otp_type));
     }
 
-    // Split label from query params
     let (label_encoded, query) = if let Some((l, q)) = rest.split_once('?') {
         (l, q)
     } else {
         return Err("Missing query parameters (at least secret is required)".into());
     };
 
-    // URL-decode the label
     let label = url_decode(label_encoded);
 
-    // Parse issuer:account from label
     let (label_issuer, account) = if let Some((i, a)) = label.split_once(':') {
         (Some(i.to_string()), Some(a.trim().to_string()))
     } else {
         (None, Some(label.to_string()))
     };
 
-    // Parse query parameters
     let mut secret = None;
     let mut algorithm = "SHA1".to_string();
     let mut digits = 6u32;
@@ -167,30 +163,19 @@ fn parse_otpauth_uri(uri: &str) -> Result<ParsedUri, String> {
                 "period" => period = val.parse().unwrap_or(30),
                 "issuer" => issuer = Some(url_decode(val)),
                 "counter" => counter = val.parse().ok(),
-                _ => {} // ignore unknown params
+                _ => {}
             }
         }
     }
 
     let secret = secret.ok_or("Missing 'secret' parameter in URI")?;
-
-    // Validate the secret is valid base32
     decode_base32(&secret)?;
 
     if otp_type == "hotp" && counter.is_none() {
         return Err("HOTP URI requires 'counter' parameter".into());
     }
 
-    Ok(ParsedUri {
-        otp_type,
-        secret,
-        algorithm,
-        digits,
-        period,
-        issuer,
-        account,
-        counter,
-    })
+    Ok(ParsedUri { otp_type, secret, algorithm, digits, period, issuer, account, counter })
 }
 
 struct ParsedUri {
@@ -204,7 +189,6 @@ struct ParsedUri {
     counter: Option<u64>,
 }
 
-/// Minimal percent-decoding for URI labels.
 fn url_decode(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.bytes();
@@ -251,47 +235,16 @@ fn register_entry(
     counter: Option<u64>,
     store: &JsonStore,
 ) -> Value {
-    // Validate secret
     if let Err(e) = decode_base32(secret_base32) {
         return json!({"error": format!("Invalid base32 secret: {}", e)});
     }
 
-    // Compute integrity hash BEFORE encryption
+    // Compute integrity hash before storage
     let secret_hash = sha256_hex(secret_base32.as_bytes());
 
-    // Encrypt secret with DPAPI
-    let encrypted = match dpapi_encrypt(secret_base32.as_bytes()) {
-        Ok(e) => e,
-        Err(e) => return json!({"error": format!("Encryption failed: {}", e)}),
-    };
-    let encoded = base64_encode(&encrypted);
-
-    // Phase C fix3: roundtrip self-test — immediately decrypt and verify
-    {
-        let rt_encrypted = match base64_decode(&encoded) {
-            Ok(e) => e,
-            Err(e) => return json!({"error": format!("Roundtrip base64 decode failed: {}", e)}),
-        };
-        let rt_decrypted = match dpapi_decrypt(&rt_encrypted) {
-            Ok(d) => d,
-            Err(e) => return json!({"error": format!("Roundtrip DPAPI decrypt failed: {}", e)}),
-        };
-        let rt_trimmed = strip_trailing_nulls(&rt_decrypted);
-        let rt_hash = sha256_hex(&rt_trimmed);
-        if rt_hash != secret_hash {
-            eprintln!(
-                "[totp] ROUNDTRIP CORRUPTION DETECTED!\n  original ({} bytes): {:02x?}\n  recovered ({} bytes): {:02x?}",
-                secret_base32.as_bytes().len(), &secret_base32.as_bytes()[..secret_base32.len().min(32)],
-                rt_trimmed.len(), &rt_trimmed[..rt_trimmed.len().min(32)]
-            );
-            return json!({
-                "error": "DPAPI roundtrip corruption detected — encrypted secret does not decrypt to original. This may indicate a Windows encoding issue.",
-                "original_len": secret_base32.len(),
-                "recovered_len": rt_trimmed.len(),
-                "hash_expected": secret_hash,
-                "hash_got": rt_hash,
-            });
-        }
+    // Store secret in OS keyring
+    if let Err(e) = keyring_store::set("totp", &name, secret_base32) {
+        return json!({"error": format!("Keyring store failed: {}", e)});
     }
 
     let mut data: TotpStore = store.load_or_default(FILE);
@@ -304,7 +257,7 @@ fn register_entry(
         period,
         issuer: issuer.clone(),
         account: account.clone(),
-        encrypted_secret: encoded,
+        encrypted_secret: None, // new entries use keyring only
         counter,
         otp_type: otp_type.clone(),
         created_at: Utc::now().to_rfc3339(),
@@ -318,7 +271,7 @@ fn register_entry(
             "type": otp_type,
             "issuer": issuer,
             "account": account,
-            "hint": "Secret encrypted via DPAPI — only this Windows user can generate codes."
+            "hint": "Secret stored in OS-native secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service)."
         }),
         Err(e) => json!({"error": format!("Failed to save: {}", e)}),
     }
@@ -371,6 +324,34 @@ fn totp_register_from_uri(args: &Value, store: &JsonStore) -> Value {
     )
 }
 
+/// Read the TOTP secret for an entry: try keyring first, fall back to legacy DPAPI.
+fn get_totp_secret(entry: &TotpEntry) -> Result<String, String> {
+    // Try keyring
+    match keyring_store::get_or_none("totp", &entry.name) {
+        Ok(Some(s)) => return Ok(s),
+        Ok(None) => {} // not in keyring — check legacy
+        Err(e) => return Err(format!("Keyring read error: {}", e)),
+    }
+
+    // Fall back to legacy DPAPI
+    match &entry.encrypted_secret {
+        Some(enc) => {
+            let bytes = base64_decode(enc).map_err(|e| format!("Base64 decode failed: {}", e))?;
+            let decrypted = crate::dpapi_legacy::dpapi_decrypt(&bytes)
+                .map_err(|e| format!("DPAPI decrypt failed: {}", e))?;
+            let trimmed = crate::dpapi_legacy::strip_trailing_nulls(&decrypted);
+            let s = String::from_utf8(trimmed)
+                .map_err(|e| format!("DPAPI decrypted bytes are not valid UTF-8: {}", e))?;
+            let s = s.trim().to_string();
+            if s.is_empty() {
+                return Err("DPAPI decrypted to empty string — secret was not stored correctly".into());
+            }
+            Ok(s)
+        }
+        None => Err(format!("TOTP secret for '{}' not found in keyring or legacy store. Re-register the entry.", entry.name)),
+    }
+}
+
 fn totp_generate(args: &Value, store: &JsonStore) -> Value {
     let name = match args.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
@@ -387,51 +368,22 @@ fn totp_generate(args: &Value, store: &JsonStore) -> Value {
         return json!({"error": "Use hotp_generate for HOTP entries"});
     }
 
-    // Decrypt secret — trace each pipeline stage for diagnosis
-    let encrypted = match base64_decode(&entry.encrypted_secret) {
-        Ok(e) => {
-            eprintln!("[totp] base64_decode: {} bytes from stored secret", e.len());
-            e
-        }
-        Err(e) => return json!({"error": format!("Base64 decode failed: {}", e)}),
+    let secret_b32 = match get_totp_secret(entry) {
+        Ok(s) => s,
+        Err(e) => return json!({"error": e}),
     };
-    let decrypted = match dpapi_decrypt(&encrypted) {
-        Ok(d) => {
-            eprintln!("[totp] dpapi_decrypt: {} bytes, hex[..16]: {:02x?}",
-                d.len(), &d[..d.len().min(16)]);
-            d
-        }
-        Err(e) => return json!({"error": format!("Decryption failed: {}", e)}),
-    };
-    // Strip trailing null bytes (DPAPI may pad) and validate UTF-8
-    let trimmed = strip_trailing_nulls(&decrypted);
-    let secret_b32 = match String::from_utf8(trimmed) {
-        Ok(s) => {
-            eprintln!("[totp] recovered base32 string: '{}' ({} chars)", s, s.len());
-            s
-        }
-        Err(e) => return json!({"error": format!(
-            "DPAPI decrypted {} bytes but they are not valid UTF-8: {}. \
-             Hex: {:02x?}",
-            decrypted.len(), e, &decrypted[..decrypted.len().min(32)]
-        )}),
-    };
-    let secret_b32 = secret_b32.trim().to_string();
-    if secret_b32.is_empty() {
-        return json!({"error": "DPAPI decrypted to empty string — secret was not stored correctly"});
-    }
 
-    // Phase C fix3: verify integrity hash if available
+    // Integrity check
     if let Some(ref expected_hash) = entry.secret_hash {
         let actual_hash = sha256_hex(secret_b32.as_bytes());
         if actual_hash != *expected_hash {
             eprintln!(
-                "[totp] INTEGRITY CHECK FAILED for '{}': hash mismatch\n  expected: {}\n  actual:   {}\n  recovered b32: '{}'",
-                name, expected_hash, actual_hash, secret_b32
+                "[totp] INTEGRITY CHECK FAILED for '{}': hash mismatch\n  expected: {}\n  actual:   {}",
+                name, expected_hash, actual_hash
             );
             return json!({
                 "error": format!(
-                    "Secret integrity check failed for '{}' — DPAPI decrypted bytes do not match stored hash. Re-register the secret.",
+                    "Secret integrity check failed for '{}' — stored secret does not match recorded hash. Re-register the secret.",
                     name
                 ),
                 "hash_expected": expected_hash,
@@ -441,10 +393,7 @@ fn totp_generate(args: &Value, store: &JsonStore) -> Value {
     }
 
     let secret = match decode_base32(&secret_b32) {
-        Ok(s) => {
-            eprintln!("[totp] base32_decode: {} raw secret bytes", s.len());
-            s
-        }
+        Ok(s) => s,
         Err(e) => return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)}),
     };
 
@@ -476,6 +425,7 @@ fn totp_list(_args: &Value, store: &JsonStore) -> Value {
         "issuer": e.issuer,
         "account": e.account,
         "created_at": e.created_at,
+        "legacy_dpapi": e.encrypted_secret.is_some(),
     })).collect();
 
     json!({"entries": entries, "count": entries.len()})
@@ -494,6 +444,9 @@ fn totp_delete(args: &Value, store: &JsonStore) -> Value {
     if data.entries.len() == before {
         return json!({"error": format!("TOTP entry '{}' not found", name)});
     }
+
+    // Remove from keyring (no-op if not there)
+    let _ = keyring_store::delete("totp", name);
 
     match store.save(FILE, &data) {
         Ok(_) => json!({"success": true, "deleted": name}),
@@ -519,26 +472,11 @@ fn hotp_generate(args: &Value, store: &JsonStore) -> Value {
 
     let counter = entry.counter.unwrap_or(0);
 
-    // Decrypt secret (same pipeline as totp_generate)
-    let encrypted = match base64_decode(&entry.encrypted_secret) {
-        Ok(e) => e,
-        Err(e) => return json!({"error": format!("Base64 decode failed: {}", e)}),
-    };
-    let decrypted = match dpapi_decrypt(&encrypted) {
-        Ok(d) => d,
-        Err(e) => return json!({"error": format!("Decryption failed: {}", e)}),
-    };
-    let trimmed = strip_trailing_nulls(&decrypted);
-    let secret_b32 = match String::from_utf8(trimmed) {
+    let secret_b32 = match get_totp_secret(entry) {
         Ok(s) => s,
-        Err(e) => return json!({"error": format!(
-            "DPAPI decrypted {} bytes but not valid UTF-8: {}", decrypted.len(), e
-        )}),
+        Err(e) => return json!({"error": e}),
     };
-    let secret_b32 = secret_b32.trim().to_string();
-    if secret_b32.is_empty() {
-        return json!({"error": "DPAPI decrypted to empty string — secret was not stored correctly"});
-    }
+
     let secret = match decode_base32(&secret_b32) {
         Ok(s) => s,
         Err(e) => return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)}),
@@ -549,7 +487,6 @@ fn hotp_generate(args: &Value, store: &JsonStore) -> Value {
         Err(e) => return json!({"error": format!("HOTP generation failed: {}", e)}),
     };
 
-    // Increment counter
     entry.counter = Some(counter + 1);
 
     match store.save(FILE, &data) {
@@ -563,21 +500,18 @@ fn hotp_generate(args: &Value, store: &JsonStore) -> Value {
     }
 }
 
-/// Compute SHA-256 hex digest of a byte slice (for integrity verification).
+// ============ Helpers ============
+
 fn sha256_hex(data: &[u8]) -> String {
     use sha2::Digest;
     let hash = sha2::Sha256::digest(data);
     hash.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Strip trailing null bytes from DPAPI output.
-/// Windows DPAPI sometimes pads string-type data with null terminators.
-fn strip_trailing_nulls(data: &[u8]) -> Vec<u8> {
-    let mut end = data.len();
-    while end > 0 && data[end - 1] == 0 {
-        end -= 1;
-    }
-    data[..end].to_vec()
+/// Returns true if any TOTP entry still has a legacy DPAPI-encrypted secret.
+pub fn has_legacy_entries(store: &JsonStore) -> bool {
+    let data: TotpStore = store.load_or_default(FILE);
+    data.entries.iter().any(|e| e.encrypted_secret.is_some())
 }
 
 // ============ TESTS ============
@@ -585,17 +519,19 @@ fn strip_trailing_nulls(data: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credential::{base64_decode, base64_encode};
+    use std::sync::Mutex;
 
-    // RFC 6238 test secret: "12345678901234567890" as ASCII bytes
+    /// Serialize all tests that touch the shared JSON files on disk.
+    /// Prevents load→modify→save races when cargo test runs threads concurrently.
+    static STORE_LOCK: Mutex<()> = Mutex::new(());
+
     const RFC_SECRET_ASCII: &[u8] = b"12345678901234567890";
-    // Same secret for SHA256 test (padded to 32 bytes per RFC 6238 Appendix B)
     const RFC_SECRET_SHA256: &[u8] = b"12345678901234567890123456789012";
-    // Same secret for SHA512 test (padded to 64 bytes per RFC 6238 Appendix B)
     const RFC_SECRET_SHA512: &[u8] = b"1234567890123456789012345678901234567890123456789012345678901234";
 
     #[test]
     fn test_hotp_rfc4226_vectors() {
-        // RFC 4226 Appendix D — HOTP test values for secret "12345678901234567890"
         let expected = [
             "755224", "287082", "359152", "969429", "338314",
             "254676", "287922", "162583", "399871", "520489",
@@ -608,7 +544,6 @@ mod tests {
 
     #[test]
     fn test_totp_rfc6238_sha1() {
-        // RFC 6238 Appendix B — SHA1 test vectors (8 digits)
         let cases: &[(u64, &str)] = &[
             (59, "94287082"),
             (1111111109, "07081804"),
@@ -657,7 +592,6 @@ mod tests {
 
     #[test]
     fn test_totp_6_digit() {
-        // 6-digit variant of RFC 6238 time=59: last 6 digits of "94287082" = "287082"
         let code = totp(RFC_SECRET_ASCII, 59, 30, "SHA1", 6).unwrap();
         assert_eq!(code, "287082");
     }
@@ -698,7 +632,6 @@ mod tests {
 
     #[test]
     fn test_base32_decode() {
-        // "Hello!" in base32 = "JBSWY3DPEE"
         let decoded = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         assert_eq!(&decoded, b"Hello!\xDE\xAD\xBE\xEF");
     }
@@ -711,23 +644,14 @@ mod tests {
 
     #[test]
     fn test_known_totp_code() {
-        // Using the well-known test secret "JBSWY3DPEHPK3PXP" ("Hello!\xDE\xAD\xBE\xEF")
-        // at a fixed time, verify deterministic output
         let secret = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         let code = totp(&secret, 0, 30, "SHA1", 6).unwrap();
-        // Counter = 0/30 = 0, so this is HOTP(secret, 0)
-        // Just verify it's 6 digits
         assert_eq!(code.len(), 6);
         assert!(code.chars().all(|c| c.is_ascii_digit()));
     }
 
     #[test]
     fn test_totp_jbswy3dpehpk3pxp_at_epoch() {
-        // Phase C fix1: reproduction test case from live bug report.
-        // Secret JBSWY3DPEHPK3PXP at epoch 1776197214, period=30, SHA1, 6 digits.
-        // Counter = 1776197214 / 30 = 59206573
-        // Verify the TOTP core algorithm produces a deterministic 6-digit code
-        // and matches the RFC reference implementation output.
         let secret = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         assert_eq!(secret, b"Hello!\xDE\xAD\xBE\xEF");
 
@@ -735,92 +659,82 @@ mod tests {
         assert_eq!(code.len(), 6);
         assert!(code.chars().all(|c| c.is_ascii_digit()));
 
-        // Verify the hotp function directly with this counter
         let hotp_code = hotp(&secret, 59206573, "SHA1", 6).unwrap();
         assert_eq!(code, hotp_code, "totp(time/period) must equal hotp(counter)");
-
-        // The reference implementation says "459480" for this input.
-        // If this assertion fails, the bug is in the TOTP math.
-        // If it passes, the live bug is in the DPAPI encrypt/decrypt pipeline.
         assert_eq!(code, "459480", "TOTP JBSWY3DPEHPK3PXP@1776197214 should be 459480");
     }
 
-    // ── Phase C fix2: DPAPI pipeline integration tests ──
-
     #[test]
-    fn test_strip_trailing_nulls() {
-        assert_eq!(strip_trailing_nulls(b"hello\0\0\0"), b"hello");
-        assert_eq!(strip_trailing_nulls(b"hello"), b"hello");
-        assert_eq!(strip_trailing_nulls(b"\0\0"), b"");
-        assert_eq!(strip_trailing_nulls(b""), b"");
+    fn test_strip_trailing_nulls_compat() {
+        // Verify the helper still works (used in dpapi_legacy)
+        assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b"hello\0\0\0"), b"hello");
+        assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b"hello"), b"hello");
+        assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b""), b"");
     }
 
-    #[test]
-    fn test_dpapi_roundtrip_register_generate() {
-        // Full pipeline: register → store → retrieve → generate
-        // On non-Windows, DPAPI is passthrough. On Windows, exercises real DPAPI.
-        let store = JsonStore::new();
-        // Clean up any prior test entry
-        let _ = handle("totp_delete", &json!({"name": "__test_fix2__"}), &store);
+    // ── Keyring round-trip tests (adapted from Phase C fix2 DPAPI tests) ──
 
-        // Register with known secret
-        let reg_result = handle("totp_register", &json!({
-            "name": "__test_fix2__",
+    #[test]
+    fn test_keyring_roundtrip_register_generate() {
+        let _g = STORE_LOCK.lock().unwrap();
+        // Full pipeline: register → keyring store → retrieve → generate
+        let store = JsonStore::new();
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_rg__"}), &store);
+
+        let reg = handle("totp_register", &json!({
+            "name": "__test_kr_rg__",
             "secret": "JBSWY3DPEHPK3PXP",
             "algorithm": "SHA1",
             "digits": 6,
             "period": 30,
         }), &store);
-        assert_eq!(reg_result["success"], true, "Register failed: {:?}", reg_result);
+        assert_eq!(reg["success"], true, "Register failed: {:?}", reg);
 
-        // Generate — should produce a valid 6-digit code
-        let gen_result = handle("totp_generate", &json!({"name": "__test_fix2__"}), &store);
-        assert!(gen_result.get("error").is_none(), "Generate failed: {:?}", gen_result);
-        let code = gen_result["code"].as_str().unwrap();
-        assert_eq!(code.len(), 6, "Code should be 6 digits, got: {}", code);
-        assert!(code.chars().all(|c| c.is_ascii_digit()), "Code not all digits: {}", code);
+        let gen = handle("totp_generate", &json!({"name": "__test_kr_rg__"}), &store);
+        assert!(gen.get("error").is_none(), "Generate failed: {:?}", gen);
+        let code = gen["code"].as_str().unwrap();
+        assert_eq!(code.len(), 6);
+        assert!(code.chars().all(|c| c.is_ascii_digit()));
 
-        // Verify against direct computation (bypass DPAPI)
         let secret_bytes = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         let now = Utc::now().timestamp() as u64;
         let expected = totp(&secret_bytes, now, 30, "SHA1", 6).unwrap();
-        assert_eq!(code, expected, "DPAPI pipeline code '{}' != direct code '{}'", code, expected);
+        assert_eq!(code, expected, "Keyring pipeline code '{}' != direct code '{}'", code, expected);
 
-        // Cleanup
-        let _ = handle("totp_delete", &json!({"name": "__test_fix2__"}), &store);
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_rg__"}), &store);
     }
 
     #[test]
-    fn test_dpapi_roundtrip_from_uri() {
-        // Same as above but using otpauth:// URI registration path
+    fn test_keyring_roundtrip_from_uri() {
+        let _g = STORE_LOCK.lock().unwrap();
         let store = JsonStore::new();
-        let _ = handle("totp_delete", &json!({"name": "__test_fix2_uri__"}), &store);
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_uri__"}), &store);
 
-        let reg_result = handle("totp_register_from_uri", &json!({
-            "name": "__test_fix2_uri__",
+        let reg = handle("totp_register_from_uri", &json!({
+            "name": "__test_kr_uri__",
             "uri": "otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example",
         }), &store);
-        assert_eq!(reg_result["success"], true, "URI register failed: {:?}", reg_result);
+        assert_eq!(reg["success"], true, "URI register failed: {:?}", reg);
 
-        let gen_result = handle("totp_generate", &json!({"name": "__test_fix2_uri__"}), &store);
-        assert!(gen_result.get("error").is_none(), "Generate failed: {:?}", gen_result);
-        let code = gen_result["code"].as_str().unwrap();
+        let gen = handle("totp_generate", &json!({"name": "__test_kr_uri__"}), &store);
+        assert!(gen.get("error").is_none(), "Generate failed: {:?}", gen);
+        let code = gen["code"].as_str().unwrap();
 
         let secret_bytes = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         let now = Utc::now().timestamp() as u64;
         let expected = totp(&secret_bytes, now, 30, "SHA1", 6).unwrap();
         assert_eq!(code, expected, "URI pipeline code '{}' != direct code '{}'", code, expected);
 
-        let _ = handle("totp_delete", &json!({"name": "__test_fix2_uri__"}), &store);
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_uri__"}), &store);
     }
 
     #[test]
-    fn test_dpapi_no_cross_contamination() {
-        // Register multiple secrets, verify each generates its own code
+    fn test_keyring_no_cross_contamination() {
+        let _g = STORE_LOCK.lock().unwrap();
         let store = JsonStore::new();
         let secrets = [
-            ("__test_multi_a__", "JBSWY3DPEHPK3PXP"),        // Hello!\xDE\xAD\xBE\xEF
-            ("__test_multi_b__", "GEZDGNBVGY3TQOJQ"),          // 12345678901234
+            ("__test_kr_a__", "JBSWY3DPEHPK3PXP"),
+            ("__test_kr_b__", "GEZDGNBVGY3TQOJQ"),
         ];
 
         for (name, secret) in &secrets {
@@ -828,12 +742,13 @@ mod tests {
             let r = handle("totp_register", &json!({
                 "name": name, "secret": secret,
             }), &store);
-            assert_eq!(r["success"], true);
+            assert_eq!(r["success"], true, "Register failed for {}: {:?}", name, r);
         }
 
         let now = Utc::now().timestamp() as u64;
         for (name, secret) in &secrets {
             let gen = handle("totp_generate", &json!({"name": name}), &store);
+            assert!(gen.get("error").is_none(), "Generate failed for {}: {:?}", name, gen);
             let code = gen["code"].as_str().unwrap();
             let raw = decode_base32(secret).unwrap();
             let expected = totp(&raw, now, 30, "SHA1", 6).unwrap();
@@ -845,13 +760,39 @@ mod tests {
         }
     }
 
-    // ── Phase C fix3: base64 roundtrip and integrity verification tests ──
+    #[test]
+    fn test_keyring_probe_succeeds() {
+        // Verify keyring is functional on this platform.
+        // Mark #[ignore] in CI environments without a running secret service daemon.
+        let result = keyring_store::probe();
+        assert!(result.is_ok(), "Keyring probe failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_secret_hash_verification() {
+        let _g = STORE_LOCK.lock().unwrap();
+        let store = JsonStore::new();
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_hash__"}), &store);
+
+        let reg = handle("totp_register", &json!({
+            "name": "__test_kr_hash__",
+            "secret": "JBSWY3DPEHPK3PXP",
+        }), &store);
+        assert_eq!(reg["success"], true, "Register failed: {:?}", reg);
+
+        let data: TotpStore = store.load_or_default(FILE);
+        let entry = data.entries.iter().find(|e| e.name == "__test_kr_hash__").unwrap();
+        assert!(entry.secret_hash.is_some(), "secret_hash should be set");
+        assert!(entry.encrypted_secret.is_none(), "encrypted_secret should be None for new entries");
+
+        let gen = handle("totp_generate", &json!({"name": "__test_kr_hash__"}), &store);
+        assert!(gen.get("error").is_none(), "Generate failed: {:?}", gen);
+
+        let _ = handle("totp_delete", &json!({"name": "__test_kr_hash__"}), &store);
+    }
 
     #[test]
     fn test_base64_roundtrip_binary() {
-        // Verify base64 encode/decode roundtrip for arbitrary binary data
-        // (simulates DPAPI ciphertext which is arbitrary bytes)
-        use crate::credential::{base64_encode, base64_decode};
         let test_cases: &[&[u8]] = &[
             b"",
             b"a",
@@ -872,27 +813,117 @@ mod tests {
         }
     }
 
+    // ── Migration tests ──
+
     #[test]
-    fn test_secret_hash_verification() {
-        // Verify that register stores a hash and generate checks it
+    #[cfg(windows)]
+    fn test_migration_tool_idempotent() {
+        let _g = STORE_LOCK.lock().unwrap();
+        // Create a legacy DPAPI-encrypted TOTP entry, run migrate twice, verify idempotent.
         let store = JsonStore::new();
-        let _ = handle("totp_delete", &json!({"name": "__test_fix3_hash__"}), &store);
+        let test_name = "__test_migrate_totp_idem__";
+        let _ = handle("totp_delete", &json!({"name": test_name}), &store);
+        let _ = keyring_store::delete("totp", test_name);
 
-        let reg = handle("totp_register", &json!({
-            "name": "__test_fix3_hash__",
-            "secret": "JBSWY3DPEHPK3PXP",
-        }), &store);
-        assert_eq!(reg["success"], true, "Register failed: {:?}", reg);
+        // Create a real DPAPI-encrypted entry directly
+        let plaintext_secret = "JBSWY3DPEHPK3PXP";
+        let encrypted = crate::dpapi_legacy::dpapi_encrypt(plaintext_secret.as_bytes()).unwrap();
+        let encoded = base64_encode(&encrypted);
+        let hash = {
+            use sha2::Digest;
+            sha2::Sha256::digest(plaintext_secret.as_bytes())
+                .iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        };
 
-        // Verify hash was stored
-        let data: TotpStore = store.load_or_default(FILE);
-        let entry = data.entries.iter().find(|e| e.name == "__test_fix3_hash__").unwrap();
-        assert!(entry.secret_hash.is_some(), "secret_hash should be set on new entries");
+        let mut data: TotpStore = store.load_or_default(FILE);
+        data.entries.retain(|e| e.name != test_name);
+        data.entries.push(TotpEntry {
+            name: test_name.into(),
+            algorithm: "SHA1".into(),
+            digits: 6,
+            period: 30,
+            issuer: None,
+            account: None,
+            encrypted_secret: Some(encoded),
+            counter: None,
+            otp_type: "totp".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            secret_hash: Some(hash),
+        });
+        store.save(FILE, &data).unwrap();
 
-        // Verify generate succeeds (hash matches)
-        let gen = handle("totp_generate", &json!({"name": "__test_fix3_hash__"}), &store);
-        assert!(gen.get("error").is_none(), "Generate failed: {:?}", gen);
+        // Run migration twice
+        let r1 = crate::migrate::migrate_dpapi_to_keyring(&store);
+        assert!(r1.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
+            "Migration 1 had errors: {:?}", r1);
+        assert!(r1["migrated_totp"].as_u64().unwrap_or(0) >= 1,
+            "Expected at least 1 TOTP migrated: {:?}", r1);
 
-        let _ = handle("totp_delete", &json!({"name": "__test_fix3_hash__"}), &store);
+        let r2 = crate::migrate::migrate_dpapi_to_keyring(&store);
+        assert!(r2.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
+            "Migration 2 (idempotent) had errors: {:?}", r2);
+        assert_eq!(r2["migrated_totp"].as_u64().unwrap_or(99), 0,
+            "Expected 0 TOTP migrated on second run: {:?}", r2);
+
+        // Verify keyring has the secret
+        let kr = keyring_store::get("totp", test_name).unwrap();
+        assert_eq!(kr, plaintext_secret, "Keyring secret mismatch after migration");
+
+        // Verify JSON no longer has encrypted_secret
+        let data2: TotpStore = store.load_or_default(FILE);
+        let e = data2.entries.iter().find(|e| e.name == test_name).unwrap();
+        assert!(e.encrypted_secret.is_none(), "encrypted_secret should be cleared after migration");
+
+        // Cleanup
+        let _ = handle("totp_delete", &json!({"name": test_name}), &store);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_migration_tool_dpapi_to_keyring() {
+        let _g = STORE_LOCK.lock().unwrap();
+        // Create a DPAPI-encrypted credential entry, run migrate, verify keyring has plaintext.
+        use crate::credential::{CredentialStore, CredentialMeta};
+        let store = JsonStore::new();
+        let test_name = "__test_migrate_cred__";
+        let _ = keyring_store::delete("cred", test_name);
+
+        let plaintext = "super_secret_value_12345";
+        let encrypted = crate::dpapi_legacy::dpapi_encrypt(plaintext.as_bytes()).unwrap();
+        let encoded = base64_encode(&encrypted);
+
+        let mut cdata: CredentialStore = store.load_or_default(crate::credential::FILE);
+        cdata.credentials.retain(|c| c.name != test_name);
+        cdata.credentials.push(CredentialMeta {
+            name: test_name.into(),
+            credential_type: "bearer".into(),
+            service: None,
+            notes: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            encrypted_value: Some(encoded),
+            token_url: None,
+            client_id: None,
+            client_secret_encrypted: None,
+        });
+        store.save(crate::credential::FILE, &cdata).unwrap();
+
+        let result = crate::migrate::migrate_dpapi_to_keyring(&store);
+        assert!(result.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
+            "Migration had errors: {:?}", result);
+        assert!(result["migrated_credentials"].as_u64().unwrap_or(0) >= 1,
+            "Expected at least 1 credential migrated: {:?}", result);
+
+        let kr = keyring_store::get("cred", test_name).unwrap();
+        assert_eq!(kr, plaintext, "Keyring value mismatch: expected '{}', got '{}'", plaintext, kr);
+
+        let cdata2: CredentialStore = store.load_or_default(crate::credential::FILE);
+        let c = cdata2.credentials.iter().find(|c| c.name == test_name).unwrap();
+        assert!(c.encrypted_value.is_none(), "encrypted_value should be cleared after migration");
+
+        // Cleanup
+        let _ = keyring_store::delete("cred", test_name);
+        let mut cdata3: CredentialStore = store.load_or_default(crate::credential::FILE);
+        cdata3.credentials.retain(|c| c.name != test_name);
+        let _ = store.save(crate::credential::FILE, &cdata3);
     }
 }

@@ -1,6 +1,7 @@
 //! Workflow MCP Server — Orchestration for API discovery, flow recording/replay,
-//! credential vault, scheduled watches, workflow chains, and frontmatter lint queries.
-//! 31 tools across 7 modules. Stdio JSON-RPC transport.
+//! credential vault, scheduled watches, workflow chains.
+//! 32 tools across 8 modules. Stdio JSON-RPC transport.
+//! v1.3.0: Cross-platform OS keyring for credential/TOTP storage.
 
 use std::io::{BufRead, Write};
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,10 @@ use serde_json::{json, Value};
 
 mod api_store;
 mod credential;
+mod dpapi_legacy;
 mod flow;
+mod keyring_store;
+mod migrate;
 mod pipe;
 mod storage;
 mod totp;
@@ -37,6 +41,54 @@ struct JsonRpcResponse {
 }
 
 // ============ TOOL DEFINITIONS ============
+
+const CRED_STORE_DESC: &str =
+    "Save a credential securely via the OS-native secret store (Windows Credential Manager, \
+     macOS Keychain, Linux Secret Service). The value is encrypted by the OS and never stored \
+     as plaintext in this server's files.";
+
+const CRED_GET_DESC: &str =
+    "Retrieve a stored credential from the OS-native secret store (Windows Credential Manager, \
+     macOS Keychain, Linux Secret Service). Only succeeds for the same OS user who stored it.";
+
+const CRED_LIST_DESC: &str =
+    "List stored credentials (names and types only, never values). \
+     Entries with legacy_dpapi=true should be migrated via workflow:migrate_dpapi_to_keyring.";
+
+const CRED_DELETE_DESC: &str =
+    "Remove a stored credential from both the OS-native secret store and the metadata file.";
+
+const CRED_REFRESH_DESC: &str =
+    "Refresh an OAuth token using stored refresh_token. New tokens are stored in the OS-native \
+     secret store. Stores token_url/client_id on first use for subsequent refreshes.";
+
+const TOTP_REGISTER_DESC: &str =
+    "Register a TOTP/2FA secret for code generation. Secret is stored in the OS-native secret \
+     store (Windows Credential Manager, macOS Keychain, Linux Secret Service) — never in plaintext.";
+
+const TOTP_REGISTER_URI_DESC: &str =
+    "Register a TOTP/HOTP entry from an otpauth:// URI (as found in QR codes). Parses all \
+     parameters automatically. Secret stored in the OS-native secret store.";
+
+const TOTP_GENERATE_DESC: &str =
+    "Generate a current TOTP code for a registered entry. Returns the 6/8-digit code and \
+     seconds until expiry. Secret retrieved from OS-native secret store.";
+
+const TOTP_LIST_DESC: &str =
+    "List all registered TOTP/HOTP entries (names, issuers, accounts). Never returns secrets. \
+     Entries with legacy_dpapi=true should be migrated via workflow:migrate_dpapi_to_keyring.";
+
+const TOTP_DELETE_DESC: &str =
+    "Remove a registered TOTP/HOTP entry from both the OS-native secret store and metadata file.";
+
+const HOTP_GENERATE_DESC: &str =
+    "Generate an HOTP code for a registered HOTP entry. Secret retrieved from OS-native secret \
+     store. Auto-increments the counter after generation.";
+
+const MIGRATE_DESC: &str =
+    "Migrate legacy Windows DPAPI-encrypted credentials and TOTP secrets to the OS-native keyring. \
+     Idempotent — safe to run multiple times. Only needed once after upgrading to v1.3.0. \
+     Returns {migrated_credentials, migrated_totp, errors: [...]}.";
 
 fn get_all_tool_definitions() -> Vec<Value> {
     let mut tools = Vec::new();
@@ -104,8 +156,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
         })));
 
     // --- Credential Vault (5 tools) ---
-    tools.push(tool_def("credential_store",
-        "Save a credential securely via Windows DPAPI. The value is encrypted with the current user's key and never stored as plaintext.",
+    tools.push(tool_def("credential_store", CRED_STORE_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -118,8 +169,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "value"]
         })));
 
-    tools.push(tool_def("credential_get",
-        "Retrieve and decrypt a stored credential. Only succeeds for the same Windows user who stored it.",
+    tools.push(tool_def("credential_get", CRED_GET_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -128,8 +178,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("credential_list",
-        "List stored credentials (names and types only, never values).",
+    tools.push(tool_def("credential_list", CRED_LIST_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -137,8 +186,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
             }
         })));
 
-    tools.push(tool_def("credential_delete",
-        "Remove a stored credential.",
+    tools.push(tool_def("credential_delete", CRED_DELETE_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -147,15 +195,14 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("credential_refresh",
-        "Refresh an OAuth token using stored refresh_token. Stores token_url/client_id on first use for subsequent refreshes.",
+    tools.push(tool_def("credential_refresh", CRED_REFRESH_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Name of the credential to refresh" },
                 "token_url": { "type": "string", "description": "OAuth token endpoint (required on first use, stored after)" },
                 "client_id": { "type": "string", "description": "OAuth client ID (required on first use, stored after)" },
-                "client_secret": { "type": "string", "description": "OAuth client secret (optional, stored encrypted)" }
+                "client_secret": { "type": "string", "description": "OAuth client secret (optional, stored in OS keyring)" }
             },
             "required": ["name"]
         })));
@@ -418,8 +465,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
         })));
 
     // --- TOTP / 2FA (6 tools) ---
-    tools.push(tool_def("totp_register",
-        "Register a TOTP/2FA secret for code generation. Secret is encrypted via Windows DPAPI.",
+    tools.push(tool_def("totp_register", TOTP_REGISTER_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -434,8 +480,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "secret"]
         })));
 
-    tools.push(tool_def("totp_register_from_uri",
-        "Register a TOTP/HOTP entry from an otpauth:// URI (as found in QR codes). Parses all parameters automatically.",
+    tools.push(tool_def("totp_register_from_uri", TOTP_REGISTER_URI_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -445,8 +490,7 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "uri"]
         })));
 
-    tools.push(tool_def("totp_generate",
-        "Generate a current TOTP code for a registered entry. Returns the 6/8-digit code and seconds until expiry.",
+    tools.push(tool_def("totp_generate", TOTP_GENERATE_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -455,15 +499,13 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("totp_list",
-        "List all registered TOTP/HOTP entries (names, issuers, accounts). Never returns secrets.",
+    tools.push(tool_def("totp_list", TOTP_LIST_DESC,
         json!({
             "type": "object",
             "properties": {}
         })));
 
-    tools.push(tool_def("totp_delete",
-        "Remove a registered TOTP/HOTP entry.",
+    tools.push(tool_def("totp_delete", TOTP_DELETE_DESC,
         json!({
             "type": "object",
             "properties": {
@@ -472,14 +514,20 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("hotp_generate",
-        "Generate an HOTP code for a registered HOTP entry. Auto-increments the counter after generation.",
+    tools.push(tool_def("hotp_generate", HOTP_GENERATE_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Name of the registered HOTP entry" }
             },
             "required": ["name"]
+        })));
+
+    // --- Migration (1 tool) ---
+    tools.push(tool_def("migrate_dpapi_to_keyring", MIGRATE_DESC,
+        json!({
+            "type": "object",
+            "properties": {}
         })));
 
     tools
@@ -526,6 +574,9 @@ fn handle_tool_call(name: &str, args: &Value, store: &JsonStore) -> Value {
         n @ ("totp_register" | "totp_register_from_uri" | "totp_generate" | "totp_list" | "totp_delete" | "hotp_generate") =>
             totp::handle(n, args, store),
 
+        // Migration tool
+        "migrate_dpapi_to_keyring" => migrate::migrate_dpapi_to_keyring(store),
+
         _ => json!({"error": format!("Unknown tool: {}", name)}),
     }
 }
@@ -549,8 +600,8 @@ fn handle_request(request: &JsonRpcRequest, store: &JsonStore) -> Option<JsonRpc
                 "capabilities": { "tools": {} },
                 "serverInfo": {
                     "name": "workflow",
-                    "version": "0.1.0",
-                    "description": "Workflow orchestration: API storage/replay, credential vault, flow recording, watches, chains, frontmatter lint queries"
+                    "version": "1.3.0",
+                    "description": "Workflow orchestration: API storage/replay, OS-keyring credential vault, flow recording, watches, chains"
                 }
             })),
             error: None,
@@ -622,6 +673,30 @@ fn main() {
     let store = JsonStore::new();
     if let Err(e) = store.ensure_dir() {
         eprintln!("[workflow] Failed to create data directory: {}", e);
+    }
+
+    // Probe OS keyring availability
+    if let Err(e) = keyring_store::probe() {
+        if std::env::var("CPC_WORKFLOW_DISABLE_SECRETS").is_ok() {
+            eprintln!(
+                "[workflow] Keyring unavailable — secrets tools disabled per CPC_WORKFLOW_DISABLE_SECRETS. \
+                 Credential and TOTP tools will return errors. Other workflow tools are functional."
+            );
+            keyring_store::SECRETS_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            eprintln!(
+                "[workflow] Keyring unavailable: {}. \
+                 Set CPC_WORKFLOW_DISABLE_SECRETS=1 to run without credential tools, \
+                 or install gnome-keyring / KeePassXC on Linux.",
+                e
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // Check for legacy DPAPI entries and warn
+    if !keyring_store::is_disabled() {
+        migrate::check_and_warn_legacy(&store);
     }
 
     let stdin = std::io::stdin();
