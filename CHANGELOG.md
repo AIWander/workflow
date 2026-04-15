@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.5] - 2026-04-15 — TOTP DPAPI Fix + Monorepo Sync
+
+### Fixed
+- **TOTP DPAPI roundtrip** (`totp.rs`, `credential.rs`) — strip null bytes after DPAPI decrypt, explicit errors on encrypt/decrypt failure, pipeline tracing. Fixes TOTP codes failing silently after credential storage on some Windows builds.
+- **`src/credential.rs`** — hardened error propagation for credential get/store/refresh paths
+
+### Changed
+- All 9 source files updated from monorepo HEAD (api_store, credential, flow, main, pipe, storage, totp, watch, workflow)
+- `Cargo.toml`: version bumped to `1.2.5` (post-v1.2.2 unified baseline, pre-CI)
+- `src/frontmatter.rs` removed (not needed in public distribution)
+
 ## [1.2.1] - 2026-04-15 — Phase C Fix3
 
 ### Fixed
