@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1] - 2026-04-15 — Phase C Fix3
+
+### Fixed
+- **Meta-tool dispatch fixes** — inline atomic rewrites replace nested dispatch pattern that caused double-execution in flow replay
+- **Credential round-trip** — DPAPI null-byte stripping and explicit error messages on decrypt failure
+
+### Added
+- **TOTP module** (`totp.rs`) — `totp_register`, `totp_register_from_uri`, `totp_generate`, `totp_list`, `totp_delete`, `hotp_generate`. HMAC-based one-time passwords with DPAPI-encrypted secret storage.
+
 ## v1.1.1 — 2026-04-11
 
 Initial public release. 31 tools across 7 modules.

@@ -11,6 +11,7 @@ mod credential;
 mod flow;
 mod pipe;
 mod storage;
+mod totp;
 mod watch;
 mod workflow;
 
@@ -416,6 +417,71 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
+    // --- TOTP / 2FA (6 tools) ---
+    tools.push(tool_def("totp_register",
+        "Register a TOTP/2FA secret for code generation. Secret is encrypted via Windows DPAPI.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Human-readable name, e.g. 'github_2fa'" },
+                "secret": { "type": "string", "description": "Base32-encoded secret (from the 2FA setup page)" },
+                "algorithm": { "type": "string", "enum": ["SHA1", "SHA256", "SHA512"], "default": "SHA1", "description": "HMAC algorithm" },
+                "digits": { "type": "integer", "enum": [6, 8], "default": 6, "description": "Code length" },
+                "period": { "type": "integer", "default": 30, "description": "Time step in seconds" },
+                "issuer": { "type": "string", "description": "Service name (e.g. 'GitHub')" },
+                "account": { "type": "string", "description": "Account identifier (e.g. 'user@example.com')" }
+            },
+            "required": ["name", "secret"]
+        })));
+
+    tools.push(tool_def("totp_register_from_uri",
+        "Register a TOTP/HOTP entry from an otpauth:// URI (as found in QR codes). Parses all parameters automatically.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Human-readable name for this entry" },
+                "uri": { "type": "string", "description": "otpauth:// URI, e.g. 'otpauth://totp/GitHub:user?secret=JBSWY3DPEHPK3PXP&issuer=GitHub'" }
+            },
+            "required": ["name", "uri"]
+        })));
+
+    tools.push(tool_def("totp_generate",
+        "Generate a current TOTP code for a registered entry. Returns the 6/8-digit code and seconds until expiry.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Name of the registered TOTP entry" }
+            },
+            "required": ["name"]
+        })));
+
+    tools.push(tool_def("totp_list",
+        "List all registered TOTP/HOTP entries (names, issuers, accounts). Never returns secrets.",
+        json!({
+            "type": "object",
+            "properties": {}
+        })));
+
+    tools.push(tool_def("totp_delete",
+        "Remove a registered TOTP/HOTP entry.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Name of the entry to delete" }
+            },
+            "required": ["name"]
+        })));
+
+    tools.push(tool_def("hotp_generate",
+        "Generate an HOTP code for a registered HOTP entry. Auto-increments the counter after generation.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Name of the registered HOTP entry" }
+            },
+            "required": ["name"]
+        })));
+
     tools
 }
 
@@ -455,6 +521,10 @@ fn handle_tool_call(name: &str, args: &Value, store: &JsonStore) -> Value {
         // Workflow tools
         n @ ("workflow_define" | "workflow_run" | "workflow_list" | "workflow_status" | "workflow_delete") =>
             workflow::handle(n, args, store),
+
+        // TOTP / 2FA tools
+        n @ ("totp_register" | "totp_register_from_uri" | "totp_generate" | "totp_list" | "totp_delete" | "hotp_generate") =>
+            totp::handle(n, args, store),
 
         _ => json!({"error": format!("Unknown tool: {}", name)}),
     }

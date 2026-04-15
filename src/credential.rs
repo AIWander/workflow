@@ -277,7 +277,7 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
 // ============ DPAPI Helpers ============
 
 #[cfg(windows)]
-fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
+pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
         CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
     };
@@ -309,7 +309,7 @@ fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
 }
 
 #[cfg(windows)]
-fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
+pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
         CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
     };
@@ -341,106 +341,26 @@ fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
 }
 
 #[cfg(not(windows))]
-fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
+pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
     // Non-Windows fallback: no encryption (development only)
     Ok(plaintext.to_vec())
 }
 
 #[cfg(not(windows))]
-fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
+pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
     Ok(ciphertext.to_vec())
 }
 
-fn base64_encode(data: &[u8]) -> String {
-    use std::io::Write;
-    let mut buf = Vec::new();
-    let mut enc = Base64Encoder::new(&mut buf);
-    enc.write_all(data).unwrap();
-    drop(enc);
-    String::from_utf8(buf).unwrap_or_default()
+pub fn base64_encode(data: &[u8]) -> String {
+    // Phase C fix3: replaced custom base64 with data_encoding::BASE64 to eliminate
+    // potential encode/decode roundtrip corruption (suspected root cause of TOTP bug).
+    data_encoding::BASE64.encode(data)
 }
 
-fn base64_decode(s: &str) -> Result<Vec<u8>> {
-    // Simple base64 decode
-    let decoded = base64_decode_impl(s.trim())?;
-    Ok(decoded)
-}
-
-// Minimal base64 implementation to avoid adding another dependency
-struct Base64Encoder<'a, W: std::io::Write> {
-    writer: &'a mut W,
-    buf: [u8; 3],
-    pos: usize,
-}
-
-const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-impl<'a, W: std::io::Write> Base64Encoder<'a, W> {
-    fn new(writer: &'a mut W) -> Self {
-        Self { writer, buf: [0; 3], pos: 0 }
-    }
-
-    fn flush_buf(&mut self) -> std::io::Result<()> {
-        if self.pos == 0 { return Ok(()); }
-        let b = &self.buf;
-        let mut out = [b'='; 4];
-        out[0] = B64_CHARS[(b[0] >> 2) as usize];
-        out[1] = B64_CHARS[(((b[0] & 0x03) << 4) | (b[1] >> 4)) as usize];
-        if self.pos > 1 {
-            out[2] = B64_CHARS[(((b[1] & 0x0f) << 2) | (b[2] >> 6)) as usize];
-        }
-        if self.pos > 2 {
-            out[3] = B64_CHARS[(b[2] & 0x3f) as usize];
-        }
-        self.writer.write_all(&out)?;
-        self.buf = [0; 3];
-        self.pos = 0;
-        Ok(())
-    }
-}
-
-impl<'a, W: std::io::Write> std::io::Write for Base64Encoder<'a, W> {
-    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        for &byte in data {
-            self.buf[self.pos] = byte;
-            self.pos += 1;
-            if self.pos == 3 {
-                self.flush_buf()?;
-            }
-        }
-        Ok(data.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
-}
-
-impl<'a, W: std::io::Write> Drop for Base64Encoder<'a, W> {
-    fn drop(&mut self) {
-        let _ = self.flush_buf();
-    }
-}
-
-fn base64_decode_impl(input: &str) -> Result<Vec<u8>> {
-    let mut result = Vec::new();
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
-
-    for c in input.bytes() {
-        let val = match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' | b'\n' | b'\r' | b' ' => continue,
-            _ => return Err(anyhow::anyhow!("Invalid base64 character")),
-        };
-        buf = (buf << 6) | val as u32;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            result.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
-    }
-    Ok(result)
+pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
+    // Phase C fix3: replaced custom base64 with data_encoding::BASE64.
+    // Tolerant decode: strip whitespace before decoding.
+    let clean: String = s.trim().chars().filter(|c| !c.is_whitespace()).collect();
+    data_encoding::BASE64.decode(clean.as_bytes())
+        .map_err(|e| anyhow::anyhow!("Base64 decode error: {}", e))
 }
