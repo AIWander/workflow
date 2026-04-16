@@ -1,8 +1,10 @@
 [package]
 name = "workflow"
-version = "1.3.2"
+version = "1.3.3"
 edition = "2021"
-description = "Workflow orchestration: API discovery storage, flow recording/replay, credential vault, scheduled watches"
+license = "Apache-2.0"
+repository = "https://github.com/josephwander-arch/workflow"
+description = "CPC workflow MCP server — credentials, TOTP, API pattern replay, flows, watches."
 
 [[bin]]
 name = "workflow"

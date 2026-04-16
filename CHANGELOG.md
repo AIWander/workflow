@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.3.3 - 2026-04-16
+
+### Changed
+- Added `license = "Apache-2.0"` field to Cargo.toml (metadata fix caught in pre-Stage-F audit)
+- Added `repository` + `description` fields to Cargo.toml
+
+### Notes
+- No functional or API changes. Patch release for crates.io metadata cleanup.
+
 ## [1.3.1] - 2026-04-15 — Two-Entry Sentinel Probe
 
 ### Changed
