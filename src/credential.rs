@@ -333,6 +333,7 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
 
 // ============ Base64 Helpers (still used by tests and legacy compat) ============
 
+#[allow(dead_code)] // Used in #[cfg(test)] migration/round-trip tests
 pub fn base64_encode(data: &[u8]) -> String {
     data_encoding::BASE64.encode(data)
 }

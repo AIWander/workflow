@@ -238,6 +238,7 @@ fn hex_val(b: u8) -> Option<u8> {
 
 // ============ TOOL HANDLERS ============
 
+#[allow(clippy::too_many_arguments)] // TOTP registration has inherent parameter count
 fn register_entry(
     name: String,
     secret_base32: &str,

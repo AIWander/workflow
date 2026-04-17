@@ -7,12 +7,13 @@
 use anyhow::Result;
 
 #[cfg(windows)]
+#[allow(dead_code)] // Used in #[cfg(test)] DPAPI migration tests
 pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
         CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    let mut input = CRYPT_INTEGER_BLOB {
+    let input = CRYPT_INTEGER_BLOB {
         cbData: plaintext.len() as u32,
         pbData: plaintext.as_ptr() as *mut u8,
     };
@@ -23,7 +24,7 @@ pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
 
     unsafe {
         CryptProtectData(
-            &mut input,
+            &input,
             None,
             None,
             None,
@@ -46,7 +47,7 @@ pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    let mut input = CRYPT_INTEGER_BLOB {
+    let input = CRYPT_INTEGER_BLOB {
         cbData: ciphertext.len() as u32,
         pbData: ciphertext.as_ptr() as *mut u8,
     };
@@ -57,7 +58,7 @@ pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
 
     unsafe {
         CryptUnprotectData(
-            &mut input,
+            &input,
             None,
             None,
             None,
@@ -76,6 +77,7 @@ pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
 
 /// Non-Windows passthrough (development / CI only — no real encryption).
 #[cfg(not(windows))]
+#[allow(dead_code)] // Used in #[cfg(test)] DPAPI migration tests
 pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
     Ok(plaintext.to_vec())
 }

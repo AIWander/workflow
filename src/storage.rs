@@ -84,6 +84,7 @@ impl JsonStore {
         Ok(())
     }
 
+    #[allow(dead_code)] // Useful diagnostic accessor
     pub fn path(&self, filename: &str) -> PathBuf {
         self.base_dir.join(filename)
     }

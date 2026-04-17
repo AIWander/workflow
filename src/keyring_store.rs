@@ -41,6 +41,7 @@ pub fn get_or_none(namespace: &str, name: &str) -> Result<Option<String>> {
 }
 
 /// Retrieve a secret, returning an error if not found.
+#[allow(dead_code)] // Complements get_or_none; useful API surface
 pub fn get(namespace: &str, name: &str) -> Result<String> {
     get_or_none(namespace, name)?
         .ok_or_else(|| anyhow::anyhow!("No keyring entry for {namespace}:{name}"))

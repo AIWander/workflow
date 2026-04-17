@@ -123,10 +123,8 @@ fn migrate_one_value(namespace: &str, name: &str, enc: &str) -> Result<(), Strin
     match keyring_store::get_or_none(namespace, name) {
         Ok(Some(existing)) => {
             if existing != plaintext {
-                return Err(format!(
-                    "keyring already has a DIFFERENT value for this entry — refusing to overwrite to prevent data loss. \
-                     Delete the keyring entry manually first."
-                ));
+                return Err("keyring already has a DIFFERENT value for this entry — refusing to overwrite to prevent data loss. \
+                     Delete the keyring entry manually first.".to_string());
             }
             // Already migrated with same value — idempotent, no error
             Ok(())

@@ -227,14 +227,14 @@ fn api_call(args: &Value, store: &JsonStore) -> Value {
                     serde_json::from_str::<Value>(&body_text).unwrap_or_else(|_| json!(body_text));
 
                 let mut result = json!({
-                    "success": status >= 200 && status < 300,
+                    "success": (200..300).contains(&status),
                     "status": status,
                     "response_time_ms": elapsed,
                     "headers": resp_headers,
                     "body": body_val,
                 });
 
-                if status < 200 || status >= 300 {
+                if !(200..300).contains(&status) {
                     if let Some(obj) = result.as_object_mut() {
                         obj.insert(
                             "fallback_hint".into(),
