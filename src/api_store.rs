@@ -54,18 +54,35 @@ fn api_store(args: &Value, store: &JsonStore) -> Value {
         Some(u) => u.to_string(),
         None => return json!({"error": "url_pattern is required"}),
     };
-    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("GET").to_uppercase();
+    let method = args
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .to_uppercase();
 
-    let headers: HashMap<String, String> = args.get("headers")
+    let headers: HashMap<String, String> = args
+        .get("headers")
         .and_then(|v| v.as_object())
-        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())).collect())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let body_template = args.get("body_template").cloned();
-    let response_shape = args.get("response_shape")
+    let response_shape = args
+        .get("response_shape")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-    let credential_ref = args.get("credential_ref").and_then(|v| v.as_str()).map(String::from);
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
+    let credential_ref = args
+        .get("credential_ref")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let notes = args.get("notes").and_then(|v| v.as_str()).map(String::from);
 
     let mut data: ApiStore = store.load_or_default(FILE);
@@ -123,35 +140,46 @@ fn api_call(args: &Value, store: &JsonStore) -> Value {
     }
 
     // Resolve credential
-    let cred_ref = args.get("credential_ref").and_then(|v| v.as_str())
+    let cred_ref = args
+        .get("credential_ref")
+        .and_then(|v| v.as_str())
         .or(api.credential_ref.as_deref());
     if let Some(cref) = cred_ref {
         if let Ok(cred_val) = crate::credential::get_credential_value(cref, store) {
             let cred_type = crate::credential::get_credential_type(cref, store).unwrap_or_default();
             match cred_type.as_str() {
-                "bearer" => { headers.insert("Authorization".into(), format!("Bearer {}", cred_val)); }
-                "api_key" => { headers.insert("X-API-Key".into(), cred_val); }
-                "basic" => { headers.insert("Authorization".into(), format!("Basic {}", cred_val)); }
-                "cookie" => { headers.insert("Cookie".into(), cred_val); }
-                _ => { headers.insert("Authorization".into(), cred_val); }
+                "bearer" => {
+                    headers.insert("Authorization".into(), format!("Bearer {}", cred_val));
+                }
+                "api_key" => {
+                    headers.insert("X-API-Key".into(), cred_val);
+                }
+                "basic" => {
+                    headers.insert("Authorization".into(), format!("Basic {}", cred_val));
+                }
+                "cookie" => {
+                    headers.insert("Cookie".into(), cred_val);
+                }
+                _ => {
+                    headers.insert("Authorization".into(), cred_val);
+                }
             }
         }
     }
 
     // Build body — apply same placeholder substitution as URL
-    let body = args.get("body").cloned()
-        .or_else(|| {
-            let mut tmpl = api.body_template.clone()?;
-            if let Some(p) = params {
-                let mut s = tmpl.to_string();
-                for (key, val) in p {
-                    let placeholder = format!("{{{}}}", key);
-                    s = s.replace(&placeholder, val.as_str().unwrap_or(&val.to_string()));
-                }
-                tmpl = serde_json::from_str(&s).unwrap_or(Value::String(s));
+    let body = args.get("body").cloned().or_else(|| {
+        let mut tmpl = api.body_template.clone()?;
+        if let Some(p) = params {
+            let mut s = tmpl.to_string();
+            for (key, val) in p {
+                let placeholder = format!("{{{}}}", key);
+                s = s.replace(&placeholder, val.as_str().unwrap_or(&val.to_string()));
             }
-            Some(tmpl)
-        });
+            tmpl = serde_json::from_str(&s).unwrap_or(Value::String(s));
+        }
+        Some(tmpl)
+    });
 
     let method = api.method.clone();
 
@@ -187,14 +215,16 @@ fn api_call(args: &Value, store: &JsonStore) -> Value {
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
-                let resp_headers: HashMap<String, String> = resp.headers().iter()
+                let resp_headers: HashMap<String, String> = resp
+                    .headers()
+                    .iter()
                     .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                     .collect();
                 let body_text = resp.text().await.unwrap_or_default();
                 let elapsed = start.elapsed().as_millis();
 
-                let body_val = serde_json::from_str::<Value>(&body_text)
-                    .unwrap_or_else(|_| json!(body_text));
+                let body_val =
+                    serde_json::from_str::<Value>(&body_text).unwrap_or_else(|_| json!(body_text));
 
                 let mut result = json!({
                     "success": status >= 200 && status < 300,
@@ -206,8 +236,10 @@ fn api_call(args: &Value, store: &JsonStore) -> Value {
 
                 if status < 200 || status >= 300 {
                     if let Some(obj) = result.as_object_mut() {
-                        obj.insert("fallback_hint".into(),
-                            json!("API failed — consider replaying via browser UI"));
+                        obj.insert(
+                            "fallback_hint".into(),
+                            json!("API failed — consider replaying via browser UI"),
+                        );
                     }
                 }
                 result
@@ -228,7 +260,9 @@ fn api_list(args: &Value, store: &JsonStore) -> Value {
     let filter = args.get("filter").and_then(|v| v.as_str());
     let filter_re = filter.and_then(|f| regex::Regex::new(f).ok());
 
-    let apis: Vec<Value> = data.apis.iter()
+    let apis: Vec<Value> = data
+        .apis
+        .iter()
         .filter(|a| {
             if let Some(ref re) = filter_re {
                 re.is_match(&a.name) || re.is_match(&a.url_pattern)
@@ -236,14 +270,16 @@ fn api_list(args: &Value, store: &JsonStore) -> Value {
                 true
             }
         })
-        .map(|a| json!({
-            "name": a.name,
-            "method": a.method,
-            "url_pattern": a.url_pattern,
-            "credential_ref": a.credential_ref,
-            "last_used": a.last_used,
-            "created_at": a.created_at,
-        }))
+        .map(|a| {
+            json!({
+                "name": a.name,
+                "method": a.method,
+                "url_pattern": a.url_pattern,
+                "credential_ref": a.credential_ref,
+                "last_used": a.last_used,
+                "created_at": a.created_at,
+            })
+        })
         .collect();
 
     json!({"apis": apis, "count": apis.len()})
@@ -256,9 +292,15 @@ fn api_test(args: &Value, store: &JsonStore) -> Value {
     };
 
     let result = api_call(&json!({"name": name, "params": args.get("params")}), store);
-    let works = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    let works = result
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let status = result.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
-    let time = result.get("response_time_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    let time = result
+        .get("response_time_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let error = result.get("error").cloned();
 
     json!({

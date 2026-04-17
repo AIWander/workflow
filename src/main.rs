@@ -3,13 +3,13 @@
 //! 32 tools across 8 modules. Stdio JSON-RPC transport.
 //! v1.3.1: Two-entry sentinel probe replaces single-entry probe.
 
-use std::io::{BufRead, Write};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io::{BufRead, Write};
 
 mod api_store;
-mod dashboard_endpoint;
 mod credential;
+mod dashboard_endpoint;
 mod dpapi_legacy;
 mod flow;
 mod keyring_store;
@@ -52,8 +52,7 @@ const CRED_GET_DESC: &str =
     "Retrieve a stored credential from the OS-native secret store (Windows Credential Manager, \
      macOS Keychain, Linux Secret Service). Only succeeds for the same OS user who stored it.";
 
-const CRED_LIST_DESC: &str =
-    "List stored credentials (names and types only, never values). \
+const CRED_LIST_DESC: &str = "List stored credentials (names and types only, never values). \
      Entries with legacy_dpapi=true should be migrated via workflow:migrate_dpapi_to_keyring.";
 
 const CRED_DELETE_DESC: &str =
@@ -126,14 +125,16 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("api_list",
+    tools.push(tool_def(
+        "api_list",
         "List all stored API patterns with name, method, URL pattern, and last used timestamp.",
         json!({
             "type": "object",
             "properties": {
                 "filter": { "type": "string", "description": "Regex filter on name or URL" }
             }
-        })));
+        }),
+    ));
 
     tools.push(tool_def("api_test",
         "Validate a stored API still works by making a test call. Returns works/status/response_time.",
@@ -146,7 +147,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("api_delete",
+    tools.push(tool_def(
+        "api_delete",
         "Remove a stored API pattern.",
         json!({
             "type": "object",
@@ -154,7 +156,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "API name to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     // --- Credential Vault (5 tools) ---
     tools.push(tool_def("credential_store", CRED_STORE_DESC,
@@ -170,31 +173,40 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "value"]
         })));
 
-    tools.push(tool_def("credential_get", CRED_GET_DESC,
+    tools.push(tool_def(
+        "credential_get",
+        CRED_GET_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Credential name to retrieve" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("credential_list", CRED_LIST_DESC,
+    tools.push(tool_def(
+        "credential_list",
+        CRED_LIST_DESC,
         json!({
             "type": "object",
             "properties": {
                 "service": { "type": "string", "description": "Filter by service" }
             }
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("credential_delete", CRED_DELETE_DESC,
+    tools.push(tool_def(
+        "credential_delete",
+        CRED_DELETE_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Credential name to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     tools.push(tool_def("credential_refresh", CRED_REFRESH_DESC,
         json!({
@@ -209,7 +221,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
         })));
 
     // --- Flow Recording & Replay (8 tools) ---
-    tools.push(tool_def("flow_record_start",
+    tools.push(tool_def(
+        "flow_record_start",
         "Begin recording a flow — a replayable sequence of MCP tool calls.",
         json!({
             "type": "object",
@@ -218,7 +231,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "description": { "type": "string", "description": "What this flow does" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     tools.push(tool_def("flow_record_step",
         "Add a step to the currently recording flow.",
@@ -236,7 +250,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "tool_name", "tool_params"]
         })));
 
-    tools.push(tool_def("flow_record_stop",
+    tools.push(tool_def(
+        "flow_record_stop",
         "Finish recording a flow. Marks it as ready for replay.",
         json!({
             "type": "object",
@@ -244,7 +259,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "Flow name to stop recording" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     tools.push(tool_def("flow_replay",
         "Replay a recorded flow. Returns step-by-step execution plan for the calling session to execute. Does NOT execute tools directly — returns what to execute.",
@@ -285,16 +301,19 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "schedule"]
         })));
 
-    tools.push(tool_def("flow_list",
+    tools.push(tool_def(
+        "flow_list",
         "List all recorded flows with status, step count, and dispatch info.",
         json!({
             "type": "object",
             "properties": {
                 "filter": { "type": "string", "description": "Regex filter on name or description" }
             }
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("flow_delete",
+    tools.push(tool_def(
+        "flow_delete",
         "Remove a recorded flow and its dispatch schedule.",
         json!({
             "type": "object",
@@ -302,7 +321,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "Flow name to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     // --- Watch / Polling (5 tools) ---
     tools.push(tool_def("watch_define",
@@ -321,12 +341,14 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "check_tool", "check_params", "condition"]
         })));
 
-    tools.push(tool_def("watch_list",
+    tools.push(tool_def(
+        "watch_list",
         "List all defined watches with their status, last check time, and poll intervals.",
         json!({
             "type": "object",
             "properties": {}
-        })));
+        }),
+    ));
 
     tools.push(tool_def("watch_check",
         "Manually trigger a watch check now. Returns check instructions for the calling session to execute.",
@@ -338,7 +360,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name"]
         })));
 
-    tools.push(tool_def("watch_schedule",
+    tools.push(tool_def(
+        "watch_schedule",
         "Register a watch with the scheduled-tasks server for unattended polling.",
         json!({
             "type": "object",
@@ -347,9 +370,11 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "enabled": { "type": "boolean", "default": true }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("watch_delete",
+    tools.push(tool_def(
+        "watch_delete",
         "Remove a watch and its schedule.",
         json!({
             "type": "object",
@@ -357,7 +382,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "Watch name to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     // --- Data Piping (2 tools) ---
     tools.push(tool_def("transform_pipe",
@@ -427,7 +453,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "trigger", "steps"]
         })));
 
-    tools.push(tool_def("workflow_run",
+    tools.push(tool_def(
+        "workflow_run",
         "Manually execute a workflow. Returns step-by-step execution plan.",
         json!({
             "type": "object",
@@ -436,16 +463,20 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "start_from": { "type": "integer", "description": "Resume from step N" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("workflow_list",
+    tools.push(tool_def(
+        "workflow_list",
         "List all defined workflows with trigger type, step count, and run history.",
         json!({
             "type": "object",
             "properties": {}
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("workflow_status",
+    tools.push(tool_def(
+        "workflow_status",
         "Get detailed status and run history for a workflow.",
         json!({
             "type": "object",
@@ -453,9 +484,11 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "Workflow name" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("workflow_delete",
+    tools.push(tool_def(
+        "workflow_delete",
         "Remove a workflow definition.",
         json!({
             "type": "object",
@@ -463,7 +496,8 @@ fn get_all_tool_definitions() -> Vec<Value> {
                 "name": { "type": "string", "description": "Workflow name to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     // --- TOTP / 2FA (6 tools) ---
     tools.push(tool_def("totp_register", TOTP_REGISTER_DESC,
@@ -491,45 +525,60 @@ fn get_all_tool_definitions() -> Vec<Value> {
             "required": ["name", "uri"]
         })));
 
-    tools.push(tool_def("totp_generate", TOTP_GENERATE_DESC,
+    tools.push(tool_def(
+        "totp_generate",
+        TOTP_GENERATE_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Name of the registered TOTP entry" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("totp_list", TOTP_LIST_DESC,
+    tools.push(tool_def(
+        "totp_list",
+        TOTP_LIST_DESC,
         json!({
             "type": "object",
             "properties": {}
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("totp_delete", TOTP_DELETE_DESC,
+    tools.push(tool_def(
+        "totp_delete",
+        TOTP_DELETE_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Name of the entry to delete" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
-    tools.push(tool_def("hotp_generate", HOTP_GENERATE_DESC,
+    tools.push(tool_def(
+        "hotp_generate",
+        HOTP_GENERATE_DESC,
         json!({
             "type": "object",
             "properties": {
                 "name": { "type": "string", "description": "Name of the registered HOTP entry" }
             },
             "required": ["name"]
-        })));
+        }),
+    ));
 
     // --- Migration (1 tool) ---
-    tools.push(tool_def("migrate_dpapi_to_keyring", MIGRATE_DESC,
+    tools.push(tool_def(
+        "migrate_dpapi_to_keyring",
+        MIGRATE_DESC,
         json!({
             "type": "object",
             "properties": {}
-        })));
+        }),
+    ));
 
     tools
 }
@@ -547,33 +596,39 @@ fn tool_def(name: &str, description: &str, input_schema: Value) -> Value {
 fn handle_tool_call(name: &str, args: &Value, store: &JsonStore) -> Value {
     match name {
         // API tools
-        n @ ("api_store" | "api_call" | "api_list" | "api_test" | "api_delete") =>
-            api_store::handle(n, args, store),
+        n @ ("api_store" | "api_call" | "api_list" | "api_test" | "api_delete") => {
+            api_store::handle(n, args, store)
+        }
 
         // Credential tools
-        n @ ("credential_store" | "credential_get" | "credential_list" | "credential_delete" | "credential_refresh") =>
-            credential::handle(n, args, store),
+        n @ ("credential_store" | "credential_get" | "credential_list" | "credential_delete"
+        | "credential_refresh") => credential::handle(n, args, store),
 
         // Flow tools
         n @ ("flow_record_start" | "flow_record_step" | "flow_record_stop" | "flow_replay"
-            | "flow_adapt" | "flow_dispatch" | "flow_list" | "flow_delete") =>
-            flow::handle(n, args, store),
+        | "flow_adapt" | "flow_dispatch" | "flow_list" | "flow_delete") => {
+            flow::handle(n, args, store)
+        }
 
         // Pipe tools (no store needed)
-        n @ ("transform_pipe" | "pipe_test") =>
-            pipe::handle(n, args),
+        n @ ("transform_pipe" | "pipe_test") => pipe::handle(n, args),
 
         // Watch tools
-        n @ ("watch_define" | "watch_list" | "watch_check" | "watch_schedule" | "watch_delete") =>
-            watch::handle(n, args, store),
+        n @ ("watch_define" | "watch_list" | "watch_check" | "watch_schedule" | "watch_delete") => {
+            watch::handle(n, args, store)
+        }
 
         // Workflow tools
-        n @ ("workflow_define" | "workflow_run" | "workflow_list" | "workflow_status" | "workflow_delete") =>
-            workflow::handle(n, args, store),
+        n @ ("workflow_define" | "workflow_run" | "workflow_list" | "workflow_status"
+        | "workflow_delete") => workflow::handle(n, args, store),
 
         // TOTP / 2FA tools
-        n @ ("totp_register" | "totp_register_from_uri" | "totp_generate" | "totp_list" | "totp_delete" | "hotp_generate") =>
-            totp::handle(n, args, store),
+        n @ ("totp_register"
+        | "totp_register_from_uri"
+        | "totp_generate"
+        | "totp_list"
+        | "totp_delete"
+        | "hotp_generate") => totp::handle(n, args, store),
 
         // Migration tool
         "migrate_dpapi_to_keyring" => migrate::migrate_dpapi_to_keyring(store),
@@ -640,7 +695,7 @@ fn handle_request(request: &JsonRpcRequest, store: &JsonStore) -> Option<JsonRpc
                 })),
                 error: None,
             }
-        },
+        }
 
         _ => JsonRpcResponse {
             jsonrpc: "2.0".into(),
@@ -659,9 +714,11 @@ fn handle_request(request: &JsonRpcRequest, store: &JsonStore) -> Option<JsonRpc
 fn main() {
     let _ = std::fs::write(
         std::env::temp_dir().join("workflow_mcp_started.txt"),
-        format!("Workflow MCP started at {:?}\nPID: {}\n",
+        format!(
+            "Workflow MCP started at {:?}\nPID: {}\n",
             std::time::SystemTime::now(),
-            std::process::id()),
+            std::process::id()
+        ),
     );
 
     // Create tokio runtime for async HTTP calls (reqwest)

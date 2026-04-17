@@ -33,7 +33,12 @@ pub(crate) fn _resolve_workflow_dir(legacy: &Path) -> Result<PathBuf> {
 /// Returns true if `dir` contains at least one file that workflow is known to create.
 /// An empty-but-existing legacy dir falls through to cpc-paths.
 pub(crate) fn has_workflow_data(dir: &Path) -> bool {
-    for marker in &["credentials.json", "totp.json", "flows.json", "workflows.json"] {
+    for marker in &[
+        "credentials.json",
+        "totp.json",
+        "flows.json",
+        "workflows.json",
+    ] {
         if dir.join(marker).exists() {
             return true;
         }
@@ -47,8 +52,7 @@ pub struct JsonStore {
 
 impl JsonStore {
     pub fn new() -> Self {
-        let base_dir = resolve_workflow_dir()
-            .unwrap_or_else(|_| PathBuf::from(LEGACY_DIR));
+        let base_dir = resolve_workflow_dir().unwrap_or_else(|_| PathBuf::from(LEGACY_DIR));
         Self { base_dir }
     }
 
@@ -61,8 +65,7 @@ impl JsonStore {
         let path = self.base_dir.join(filename);
         let data = std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        serde_json::from_str(&data)
-            .with_context(|| format!("Failed to parse {}", path.display()))
+        serde_json::from_str(&data).with_context(|| format!("Failed to parse {}", path.display()))
     }
 
     pub fn load_or_default<T: DeserializeOwned + Default>(&self, filename: &str) -> T {
@@ -73,8 +76,7 @@ impl JsonStore {
         self.ensure_dir()?;
         let path = self.base_dir.join(filename);
         let tmp = self.base_dir.join(format!("{}.tmp", filename));
-        let json = serde_json::to_string_pretty(data)
-            .context("Failed to serialize")?;
+        let json = serde_json::to_string_pretty(data).context("Failed to serialize")?;
         std::fs::write(&tmp, &json)
             .with_context(|| format!("Failed to write {}", tmp.display()))?;
         std::fs::rename(&tmp, &path)
@@ -103,7 +105,11 @@ mod tests {
         std::fs::write(dir.path().join("credentials.json"), "{}").unwrap();
 
         let result = _resolve_workflow_dir(dir.path()).unwrap();
-        assert_eq!(result, dir.path(), "legacy dir with marker should be returned as-is");
+        assert_eq!(
+            result,
+            dir.path(),
+            "legacy dir with marker should be returned as-is"
+        );
     }
 
     #[test]
@@ -125,10 +131,19 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
 
-        for marker in &["credentials.json", "totp.json", "flows.json", "workflows.json"] {
+        for marker in &[
+            "credentials.json",
+            "totp.json",
+            "flows.json",
+            "workflows.json",
+        ] {
             let path = dir.path().join(marker);
             std::fs::write(&path, "{}").unwrap();
-            assert!(has_workflow_data(dir.path()), "marker {} should be detected", marker);
+            assert!(
+                has_workflow_data(dir.path()),
+                "marker {} should be detected",
+                marker
+            );
             std::fs::remove_file(&path).unwrap();
         }
     }

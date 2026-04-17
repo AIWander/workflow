@@ -60,7 +60,10 @@ pub fn migrate_dpapi_to_keyring(store: &JsonStore) -> Value {
 
     if creds_changed {
         if let Err(e) = store.save(crate::credential::FILE, &cdata) {
-            errors.push(format!("Failed to save credentials.json after migration: {}", e));
+            errors.push(format!(
+                "Failed to save credentials.json after migration: {}",
+                e
+            ));
         }
     }
 
@@ -112,8 +115,8 @@ fn migrate_one_value(namespace: &str, name: &str, enc: &str) -> Result<(), Strin
             format!("DPAPI decrypt: {}", e)
         })?;
     let trimmed = crate::dpapi_legacy::strip_trailing_nulls(&decrypted);
-    let plaintext = String::from_utf8(trimmed)
-        .map_err(|e| format!("decrypted bytes not UTF-8: {}", e))?;
+    let plaintext =
+        String::from_utf8(trimmed).map_err(|e| format!("decrypted bytes not UTF-8: {}", e))?;
     let plaintext = plaintext.trim().to_string();
 
     // Check if keyring already has a value
@@ -128,10 +131,8 @@ fn migrate_one_value(namespace: &str, name: &str, enc: &str) -> Result<(), Strin
             // Already migrated with same value — idempotent, no error
             Ok(())
         }
-        Ok(None) => {
-            keyring_store::set(namespace, name, &plaintext)
-                .map_err(|e| format!("keyring store: {}", e))
-        }
+        Ok(None) => keyring_store::set(namespace, name, &plaintext)
+            .map_err(|e| format!("keyring store: {}", e)),
         Err(e) => Err(format!("keyring read: {}", e)),
     }
 }

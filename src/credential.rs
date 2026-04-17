@@ -62,7 +62,10 @@ pub fn get_credential_value(name: &str, store: &JsonStore) -> Result<String> {
     }
     // Fall back to legacy DPAPI
     let data: CredentialStore = store.load_or_default(FILE);
-    let cred = data.credentials.iter().find(|c| c.name == name)
+    let cred = data
+        .credentials
+        .iter()
+        .find(|c| c.name == name)
         .ok_or_else(|| anyhow::anyhow!("Credential '{}' not found", name))?;
     match &cred.encrypted_value {
         Some(enc) => {
@@ -71,14 +74,20 @@ pub fn get_credential_value(name: &str, store: &JsonStore) -> Result<String> {
             let trimmed = crate::dpapi_legacy::strip_trailing_nulls(&decrypted);
             Ok(String::from_utf8(trimmed)?)
         }
-        None => Err(anyhow::anyhow!("Credential '{}' has no value in keyring or legacy store", name)),
+        None => Err(anyhow::anyhow!(
+            "Credential '{}' has no value in keyring or legacy store",
+            name
+        )),
     }
 }
 
 /// Get credential type by name.
 pub fn get_credential_type(name: &str, store: &JsonStore) -> Option<String> {
     let data: CredentialStore = store.load_or_default(FILE);
-    data.credentials.iter().find(|c| c.name == name).map(|c| c.credential_type.clone())
+    data.credentials
+        .iter()
+        .find(|c| c.name == name)
+        .map(|c| c.credential_type.clone())
 }
 
 fn credential_store(args: &Value, store: &JsonStore) -> Value {
@@ -90,8 +99,15 @@ fn credential_store(args: &Value, store: &JsonStore) -> Value {
         Some(v) => v,
         None => return json!({"error": "value is required"}),
     };
-    let credential_type = args.get("credential_type").and_then(|v| v.as_str()).unwrap_or("bearer").to_string();
-    let service = args.get("service").and_then(|v| v.as_str()).map(String::from);
+    let credential_type = args
+        .get("credential_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("bearer")
+        .to_string();
+    let service = args
+        .get("service")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let notes = args.get("notes").and_then(|v| v.as_str()).map(String::from);
 
     // Store secret in OS keyring
@@ -115,7 +131,9 @@ fn credential_store(args: &Value, store: &JsonStore) -> Value {
     });
 
     match store.save(FILE, &data) {
-        Ok(_) => json!({"success": true, "name": name, "hint": "Value stored in OS-native secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service)."}),
+        Ok(_) => {
+            json!({"success": true, "name": name, "hint": "Value stored in OS-native secret store (Windows Credential Manager / macOS Keychain / Linux Secret Service)."})
+        }
         Err(e) => json!({"error": format!("Failed to save metadata: {}", e)}),
     }
 }
@@ -149,7 +167,9 @@ fn credential_list(args: &Value, store: &JsonStore) -> Value {
     let data: CredentialStore = store.load_or_default(FILE);
     let service_filter = args.get("service").and_then(|v| v.as_str());
 
-    let creds: Vec<Value> = data.credentials.iter()
+    let creds: Vec<Value> = data
+        .credentials
+        .iter()
         .filter(|c| {
             if let Some(svc) = service_filter {
                 c.service.as_deref() == Some(svc)
@@ -157,13 +177,15 @@ fn credential_list(args: &Value, store: &JsonStore) -> Value {
                 true
             }
         })
-        .map(|c| json!({
-            "name": c.name,
-            "credential_type": c.credential_type,
-            "service": c.service,
-            "created_at": c.created_at,
-            "legacy_dpapi": c.encrypted_value.is_some(),
-        }))
+        .map(|c| {
+            json!({
+                "name": c.name,
+                "credential_type": c.credential_type,
+                "service": c.service,
+                "created_at": c.created_at,
+                "legacy_dpapi": c.encrypted_value.is_some(),
+            })
+        })
         .collect();
 
     json!({"credentials": creds, "count": creds.len()})
@@ -222,11 +244,15 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
 
     let token_url = match &cred.token_url {
         Some(u) => u.clone(),
-        None => return json!({"error": "token_url is required (provide on first refresh, stored after)"}),
+        None => {
+            return json!({"error": "token_url is required (provide on first refresh, stored after)"})
+        }
     };
     let client_id = match &cred.client_id {
         Some(c) => c.clone(),
-        None => return json!({"error": "client_id is required (provide on first refresh, stored after)"}),
+        None => {
+            return json!({"error": "client_id is required (provide on first refresh, stored after)"})
+        }
     };
 
     let _ = store.save(FILE, &data);
@@ -239,7 +265,8 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
 
     // Read client_secret: try keyring first, fall back to legacy DPAPI
     let client_secret = keyring_store::get_or_none("cred", &format!("{}:client_secret", &name))
-        .ok().flatten()
+        .ok()
+        .flatten()
         .or_else(|| {
             let data: CredentialStore = store.load_or_default(FILE);
             let cred = data.credentials.iter().find(|c| c.name == name)?;
@@ -286,7 +313,10 @@ fn credential_refresh(args: &Value, store: &JsonStore) -> Value {
         }
         let _ = store.save(FILE, &data);
 
-        let expiry = result.get("expires_in").and_then(|v| v.as_u64()).unwrap_or(0);
+        let expiry = result
+            .get("expires_in")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         json!({
             "refreshed": true,
             "new_expiry_seconds": expiry,
@@ -309,7 +339,8 @@ pub fn base64_encode(data: &[u8]) -> String {
 
 pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
     let clean: String = s.trim().chars().filter(|c| !c.is_whitespace()).collect();
-    data_encoding::BASE64.decode(clean.as_bytes())
+    data_encoding::BASE64
+        .decode(clean.as_bytes())
         .map_err(|e| anyhow::anyhow!("Base64 decode error: {}", e))
 }
 
@@ -318,5 +349,7 @@ pub fn base64_decode(s: &str) -> Result<Vec<u8>> {
 /// Returns true if any credential entry still has a legacy DPAPI-encrypted value.
 pub fn has_legacy_entries(store: &JsonStore) -> bool {
     let data: CredentialStore = store.load_or_default(FILE);
-    data.credentials.iter().any(|c| c.encrypted_value.is_some() || c.client_secret_encrypted.is_some())
+    data.credentials
+        .iter()
+        .any(|c| c.encrypted_value.is_some() || c.client_secret_encrypted.is_some())
 }

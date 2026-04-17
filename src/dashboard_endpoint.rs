@@ -45,8 +45,15 @@ pub fn spawn() {
                 }
             };
 
-            let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(base_port);
-            eprintln!("[workflow/dashboard] Listening on http://127.0.0.1:{}/api/status", port);
+            let port = server
+                .server_addr()
+                .to_ip()
+                .map(|a| a.port())
+                .unwrap_or(base_port);
+            eprintln!(
+                "[workflow/dashboard] Listening on http://127.0.0.1:{}/api/status",
+                port
+            );
 
             for request in server.incoming_requests() {
                 handle_request(request);
@@ -68,16 +75,19 @@ fn try_bind(base_port: u16) -> Option<tiny_http::Server> {
 fn cors_headers() -> Vec<tiny_http::Header> {
     vec![
         "Access-Control-Allow-Origin: *".parse().unwrap(),
-        "Access-Control-Allow-Methods: GET, OPTIONS".parse().unwrap(),
-        "Access-Control-Allow-Headers: Content-Type".parse().unwrap(),
+        "Access-Control-Allow-Methods: GET, OPTIONS"
+            .parse()
+            .unwrap(),
+        "Access-Control-Allow-Headers: Content-Type"
+            .parse()
+            .unwrap(),
         "Content-Type: application/json".parse().unwrap(),
     ]
 }
 
 fn respond(request: tiny_http::Request, status: u16, body: Value) {
     let body_str = serde_json::to_string(&body).unwrap_or_default();
-    let mut response = tiny_http::Response::from_string(body_str)
-        .with_status_code(status);
+    let mut response = tiny_http::Response::from_string(body_str).with_status_code(status);
     for h in cors_headers() {
         response = response.with_header(h);
     }
@@ -135,11 +145,17 @@ fn build_totp(store: &JsonStore) -> Value {
     let data: TotpStore = store.load_or_default("totp.json");
     let count = data.entries.len();
 
-    let entries: Vec<Value> = data.entries.iter().map(|e| json!({
-        "name": e.name,
-        "issuer": e.issuer,
-        "account": e.account
-    })).collect();
+    let entries: Vec<Value> = data
+        .entries
+        .iter()
+        .map(|e| {
+            json!({
+                "name": e.name,
+                "issuer": e.issuer,
+                "account": e.account
+            })
+        })
+        .collect();
 
     json!({
         "count": count,
@@ -151,7 +167,9 @@ fn build_api_patterns(store: &JsonStore) -> Value {
     let data: ApiStore = store.load_or_default("apis.json");
     let count = data.apis.len();
 
-    let last_used = data.apis.iter()
+    let last_used = data
+        .apis
+        .iter()
         .filter_map(|a| a.last_used.as_deref())
         .max()
         .map(String::from);
@@ -167,16 +185,22 @@ fn build_flows(store: &JsonStore) -> Value {
     let count = data.flows.len();
 
     // Find the most recently run flow
-    let last_run = data.flows.iter()
+    let last_run = data
+        .flows
+        .iter()
         .filter_map(|f| {
-            f.last_run.as_deref().map(|ts| (f.name.as_str(), f.last_result.as_deref(), ts))
+            f.last_run
+                .as_deref()
+                .map(|ts| (f.name.as_str(), f.last_result.as_deref(), ts))
         })
         .max_by_key(|(_, _, ts)| *ts)
-        .map(|(name, result, ts)| json!({
-            "name": name,
-            "status": result.unwrap_or("unknown"),
-            "ts": ts
-        }));
+        .map(|(name, result, ts)| {
+            json!({
+                "name": name,
+                "status": result.unwrap_or("unknown"),
+                "ts": ts
+            })
+        });
 
     json!({
         "count": count,
@@ -188,11 +212,17 @@ fn build_watches(store: &JsonStore) -> Value {
     let data: WatchStore = store.load_or_default("watches.json");
     let active_count = data.watches.iter().filter(|w| w.is_active).count();
 
-    let watches: Vec<Value> = data.watches.iter().map(|w| json!({
-        "name": w.name,
-        "last_check": w.last_check,
-        "condition": w.condition
-    })).collect();
+    let watches: Vec<Value> = data
+        .watches
+        .iter()
+        .map(|w| {
+            json!({
+                "name": w.name,
+                "last_check": w.last_check,
+                "condition": w.condition
+            })
+        })
+        .collect();
 
     json!({
         "active_count": active_count,
@@ -237,7 +267,13 @@ mod tests {
         let creds = build_credentials(&store);
         let cred_str = serde_json::to_string(&creds).unwrap_or_default();
         // "names" is fine, but the actual values should never appear.
-        assert!(!cred_str.contains("\"value\""), "credential values must not appear in status");
-        assert!(!cred_str.contains("\"secret\""), "secrets must not appear in status");
+        assert!(
+            !cred_str.contains("\"value\""),
+            "credential values must not appear in status"
+        );
+        assert!(
+            !cred_str.contains("\"secret\""),
+            "secrets must not appear in status"
+        );
     }
 }

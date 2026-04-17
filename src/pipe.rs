@@ -46,7 +46,10 @@ fn pipe_test(args: &Value) -> Value {
         Some(ops) => ops.clone(),
         None => return json!({"error": "operations array is required"}),
     };
-    let show_intermediate = args.get("show_intermediate").and_then(|v| v.as_bool()).unwrap_or(false);
+    let show_intermediate = args
+        .get("show_intermediate")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let mut current = input;
     let mut intermediates: Vec<Value> = Vec::new();
@@ -54,12 +57,14 @@ fn pipe_test(args: &Value) -> Value {
     for (i, op) in operations.iter().enumerate() {
         current = match apply_single_op(current, op) {
             Ok(v) => v,
-            Err(e) => return json!({
-                "success": false,
-                "error": format!("Operation {} failed: {}", i, e),
-                "failed_at": i,
-                "intermediates": if show_intermediate { Some(&intermediates) } else { None },
-            }),
+            Err(e) => {
+                return json!({
+                    "success": false,
+                    "error": format!("Operation {} failed: {}", i, e),
+                    "failed_at": i,
+                    "intermediates": if show_intermediate { Some(&intermediates) } else { None },
+                })
+            }
         };
         if show_intermediate {
             intermediates.push(json!({
@@ -85,12 +90,16 @@ fn apply_operations(mut value: Value, operations: &[Value]) -> Result<Value, Str
 }
 
 fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
-    let op_type = op.get("op").and_then(|v| v.as_str())
+    let op_type = op
+        .get("op")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| "operation missing 'op' field".to_string())?;
 
     match op_type {
         "pick" => {
-            let keys = op.get("keys").and_then(|v| v.as_array())
+            let keys = op
+                .get("keys")
+                .and_then(|v| v.as_array())
                 .ok_or("pick requires 'keys' array")?;
             let key_strs: Vec<&str> = keys.iter().filter_map(|v| v.as_str()).collect();
 
@@ -105,19 +114,22 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
                     Ok(Value::Object(new_map))
                 }
                 Value::Array(arr) => {
-                    let picked: Vec<Value> = arr.iter().map(|item| {
-                        if let Some(obj) = item.as_object() {
-                            let mut new_map = serde_json::Map::new();
-                            for key in &key_strs {
-                                if let Some(v) = obj.get(*key) {
-                                    new_map.insert(key.to_string(), v.clone());
+                    let picked: Vec<Value> = arr
+                        .iter()
+                        .map(|item| {
+                            if let Some(obj) = item.as_object() {
+                                let mut new_map = serde_json::Map::new();
+                                for key in &key_strs {
+                                    if let Some(v) = obj.get(*key) {
+                                        new_map.insert(key.to_string(), v.clone());
+                                    }
                                 }
+                                Value::Object(new_map)
+                            } else {
+                                item.clone()
                             }
-                            Value::Object(new_map)
-                        } else {
-                            item.clone()
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     Ok(Value::Array(picked))
                 }
                 _ => Err("pick requires object or array input".into()),
@@ -125,9 +137,13 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "rename" => {
-            let from = op.get("from").and_then(|v| v.as_str())
+            let from = op
+                .get("from")
+                .and_then(|v| v.as_str())
                 .ok_or("rename requires 'from' string")?;
-            let to = op.get("to").and_then(|v| v.as_str())
+            let to = op
+                .get("to")
+                .and_then(|v| v.as_str())
                 .ok_or("rename requires 'to' string")?;
 
             match value {
@@ -138,16 +154,19 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
                     Ok(Value::Object(map))
                 }
                 Value::Array(arr) => {
-                    let renamed: Vec<Value> = arr.into_iter().map(|item| {
-                        if let Value::Object(mut obj) = item {
-                            if let Some(v) = obj.remove(from) {
-                                obj.insert(to.to_string(), v);
+                    let renamed: Vec<Value> = arr
+                        .into_iter()
+                        .map(|item| {
+                            if let Value::Object(mut obj) = item {
+                                if let Some(v) = obj.remove(from) {
+                                    obj.insert(to.to_string(), v);
+                                }
+                                Value::Object(obj)
+                            } else {
+                                item
                             }
-                            Value::Object(obj)
-                        } else {
-                            item
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     Ok(Value::Array(renamed))
                 }
                 _ => Err("rename requires object or array input".into()),
@@ -155,7 +174,9 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "flatten" => {
-            let key = op.get("key").and_then(|v| v.as_str())
+            let key = op
+                .get("key")
+                .and_then(|v| v.as_str())
                 .ok_or("flatten requires 'key' string")?;
 
             match &value {
@@ -180,23 +201,28 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "filter" => {
-            let key = op.get("key").and_then(|v| v.as_str())
+            let key = op
+                .get("key")
+                .and_then(|v| v.as_str())
                 .ok_or("filter requires 'key' string")?;
             let equals = op.get("equals");
 
             match value {
                 Value::Array(arr) => {
-                    let filtered: Vec<Value> = arr.into_iter().filter(|item| {
-                        if let Some(val) = item.get(key) {
-                            if let Some(eq) = equals {
-                                val == eq
+                    let filtered: Vec<Value> = arr
+                        .into_iter()
+                        .filter(|item| {
+                            if let Some(val) = item.get(key) {
+                                if let Some(eq) = equals {
+                                    val == eq
+                                } else {
+                                    !val.is_null()
+                                }
                             } else {
-                                !val.is_null()
+                                false
                             }
-                        } else {
-                            false
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     Ok(Value::Array(filtered))
                 }
                 _ => Err("filter requires array input".into()),
@@ -204,7 +230,9 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "template" => {
-            let format_str = op.get("format").and_then(|v| v.as_str())
+            let format_str = op
+                .get("format")
+                .and_then(|v| v.as_str())
                 .ok_or("template requires 'format' string")?;
 
             match &value {
@@ -221,22 +249,25 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
                     Ok(Value::String(result))
                 }
                 Value::Array(arr) => {
-                    let results: Vec<Value> = arr.iter().map(|item| {
-                        if let Some(map) = item.as_object() {
-                            let mut result = format_str.to_string();
-                            for (k, v) in map {
-                                let val_str = match v {
-                                    Value::String(s) => s.clone(),
-                                    Value::Number(n) => n.to_string(),
-                                    other => other.to_string(),
-                                };
-                                result = result.replace(&format!("{{{}}}", k), &val_str);
+                    let results: Vec<Value> = arr
+                        .iter()
+                        .map(|item| {
+                            if let Some(map) = item.as_object() {
+                                let mut result = format_str.to_string();
+                                for (k, v) in map {
+                                    let val_str = match v {
+                                        Value::String(s) => s.clone(),
+                                        Value::Number(n) => n.to_string(),
+                                        other => other.to_string(),
+                                    };
+                                    result = result.replace(&format!("{{{}}}", k), &val_str);
+                                }
+                                Value::String(result)
+                            } else {
+                                item.clone()
                             }
-                            Value::String(result)
-                        } else {
-                            item.clone()
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     Ok(Value::Array(results))
                 }
                 _ => Err("template requires object or array input".into()),
@@ -244,20 +275,24 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "group_by" => {
-            let key = op.get("key").and_then(|v| v.as_str())
+            let key = op
+                .get("key")
+                .and_then(|v| v.as_str())
                 .ok_or("group_by requires 'key' string")?;
 
             match value {
                 Value::Array(arr) => {
                     let mut groups: serde_json::Map<String, Value> = serde_json::Map::new();
                     for item in arr {
-                        let group_key = item.get(key)
+                        let group_key = item
+                            .get(key)
                             .map(|v| match v {
                                 Value::String(s) => s.clone(),
                                 other => other.to_string(),
                             })
                             .unwrap_or_else(|| "null".to_string());
-                        let group = groups.entry(group_key)
+                        let group = groups
+                            .entry(group_key)
                             .or_insert_with(|| Value::Array(Vec::new()));
                         if let Some(arr) = group.as_array_mut() {
                             arr.push(item);
@@ -270,15 +305,20 @@ fn apply_single_op(value: Value, op: &Value) -> Result<Value, String> {
         }
 
         "math" => {
-            let key = op.get("key").and_then(|v| v.as_str())
+            let key = op
+                .get("key")
+                .and_then(|v| v.as_str())
                 .ok_or("math requires 'key' string")?;
-            let math_op = op.get("math_op").or_else(|| op.get("op_type"))
+            let math_op = op
+                .get("math_op")
+                .or_else(|| op.get("op_type"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("sum");
 
             match &value {
                 Value::Array(arr) => {
-                    let values: Vec<f64> = arr.iter()
+                    let values: Vec<f64> = arr
+                        .iter()
                         .filter_map(|item| item.get(key).and_then(|v| v.as_f64()))
                         .collect();
 

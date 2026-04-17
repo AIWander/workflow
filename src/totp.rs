@@ -63,7 +63,8 @@ pub fn handle(tool: &str, args: &Value, store: &JsonStore) -> Value {
 
 /// Decode a base32-encoded secret to raw bytes.
 fn decode_base32(input: &str) -> Result<Vec<u8>, String> {
-    let clean: String = input.chars()
+    let clean: String = input
+        .chars()
         .filter(|c| !c.is_whitespace() && *c != '=')
         .flat_map(|c| c.to_uppercase())
         .collect();
@@ -111,7 +112,13 @@ fn hotp(secret: &[u8], counter: u64, algorithm: &str, digits: u32) -> Result<Str
     Ok(format!("{:0>width$}", code, width = digits as usize))
 }
 
-fn totp(secret: &[u8], time: u64, period: u64, algorithm: &str, digits: u32) -> Result<String, String> {
+fn totp(
+    secret: &[u8],
+    time: u64,
+    period: u64,
+    algorithm: &str,
+    digits: u32,
+) -> Result<String, String> {
     let counter = time / period;
     hotp(secret, counter, algorithm, digits)
 }
@@ -125,8 +132,7 @@ fn parse_otpauth_uri(uri: &str) -> Result<ParsedUri, String> {
 
     let rest = &uri[10..];
 
-    let (otp_type, rest) = rest.split_once('/')
-        .ok_or("Missing OTP type in URI")?;
+    let (otp_type, rest) = rest.split_once('/').ok_or("Missing OTP type in URI")?;
 
     let otp_type = otp_type.to_lowercase();
     if otp_type != "totp" && otp_type != "hotp" {
@@ -175,7 +181,16 @@ fn parse_otpauth_uri(uri: &str) -> Result<ParsedUri, String> {
         return Err("HOTP URI requires 'counter' parameter".into());
     }
 
-    Ok(ParsedUri { otp_type, secret, algorithm, digits, period, issuer, account, counter })
+    Ok(ParsedUri {
+        otp_type,
+        secret,
+        algorithm,
+        digits,
+        period,
+        issuer,
+        account,
+        counter,
+    })
 }
 
 struct ParsedUri {
@@ -286,13 +301,34 @@ fn totp_register(args: &Value, store: &JsonStore) -> Value {
         Some(s) => s,
         None => return json!({"error": "secret (base32) is required"}),
     };
-    let algorithm = args.get("algorithm").and_then(|v| v.as_str()).unwrap_or("SHA1").to_uppercase();
+    let algorithm = args
+        .get("algorithm")
+        .and_then(|v| v.as_str())
+        .unwrap_or("SHA1")
+        .to_uppercase();
     let digits = args.get("digits").and_then(|v| v.as_u64()).unwrap_or(6) as u32;
     let period = args.get("period").and_then(|v| v.as_u64()).unwrap_or(30);
-    let issuer = args.get("issuer").and_then(|v| v.as_str()).map(String::from);
-    let account = args.get("account").and_then(|v| v.as_str()).map(String::from);
+    let issuer = args
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let account = args
+        .get("account")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
-    register_entry(name, secret, algorithm, digits, period, issuer, account, "totp".into(), None, store)
+    register_entry(
+        name,
+        secret,
+        algorithm,
+        digits,
+        period,
+        issuer,
+        account,
+        "totp".into(),
+        None,
+        store,
+    )
 }
 
 fn totp_register_from_uri(args: &Value, store: &JsonStore) -> Value {
@@ -344,11 +380,16 @@ fn get_totp_secret(entry: &TotpEntry) -> Result<String, String> {
                 .map_err(|e| format!("DPAPI decrypted bytes are not valid UTF-8: {}", e))?;
             let s = s.trim().to_string();
             if s.is_empty() {
-                return Err("DPAPI decrypted to empty string — secret was not stored correctly".into());
+                return Err(
+                    "DPAPI decrypted to empty string — secret was not stored correctly".into(),
+                );
             }
             Ok(s)
         }
-        None => Err(format!("TOTP secret for '{}' not found in keyring or legacy store. Re-register the entry.", entry.name)),
+        None => Err(format!(
+            "TOTP secret for '{}' not found in keyring or legacy store. Re-register the entry.",
+            entry.name
+        )),
     }
 }
 
@@ -394,7 +435,9 @@ fn totp_generate(args: &Value, store: &JsonStore) -> Value {
 
     let secret = match decode_base32(&secret_b32) {
         Ok(s) => s,
-        Err(e) => return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)}),
+        Err(e) => {
+            return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)})
+        }
     };
 
     let now = Utc::now().timestamp() as u64;
@@ -416,17 +459,23 @@ fn totp_generate(args: &Value, store: &JsonStore) -> Value {
 
 fn totp_list(_args: &Value, store: &JsonStore) -> Value {
     let data: TotpStore = store.load_or_default(FILE);
-    let entries: Vec<Value> = data.entries.iter().map(|e| json!({
-        "name": e.name,
-        "type": e.otp_type,
-        "algorithm": e.algorithm,
-        "digits": e.digits,
-        "period": e.period,
-        "issuer": e.issuer,
-        "account": e.account,
-        "created_at": e.created_at,
-        "legacy_dpapi": e.encrypted_secret.is_some(),
-    })).collect();
+    let entries: Vec<Value> = data
+        .entries
+        .iter()
+        .map(|e| {
+            json!({
+                "name": e.name,
+                "type": e.otp_type,
+                "algorithm": e.algorithm,
+                "digits": e.digits,
+                "period": e.period,
+                "issuer": e.issuer,
+                "account": e.account,
+                "created_at": e.created_at,
+                "legacy_dpapi": e.encrypted_secret.is_some(),
+            })
+        })
+        .collect();
 
     json!({"entries": entries, "count": entries.len()})
 }
@@ -479,7 +528,9 @@ fn hotp_generate(args: &Value, store: &JsonStore) -> Value {
 
     let secret = match decode_base32(&secret_b32) {
         Ok(s) => s,
-        Err(e) => return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)}),
+        Err(e) => {
+            return json!({"error": format!("Base32 decode failed on '{}': {}", secret_b32, e)})
+        }
     };
 
     let code = match hotp(&secret, counter, &entry.algorithm, entry.digits) {
@@ -528,17 +579,22 @@ mod tests {
 
     const RFC_SECRET_ASCII: &[u8] = b"12345678901234567890";
     const RFC_SECRET_SHA256: &[u8] = b"12345678901234567890123456789012";
-    const RFC_SECRET_SHA512: &[u8] = b"1234567890123456789012345678901234567890123456789012345678901234";
+    const RFC_SECRET_SHA512: &[u8] =
+        b"1234567890123456789012345678901234567890123456789012345678901234";
 
     #[test]
     fn test_hotp_rfc4226_vectors() {
         let expected = [
-            "755224", "287082", "359152", "969429", "338314",
-            "254676", "287922", "162583", "399871", "520489",
+            "755224", "287082", "359152", "969429", "338314", "254676", "287922", "162583",
+            "399871", "520489",
         ];
         for (counter, exp) in expected.iter().enumerate() {
             let code = hotp(RFC_SECRET_ASCII, counter as u64, "SHA1", 6).unwrap();
-            assert_eq!(&code, exp, "HOTP counter={} expected={} got={}", counter, exp, code);
+            assert_eq!(
+                &code, exp,
+                "HOTP counter={} expected={} got={}",
+                counter, exp, code
+            );
         }
     }
 
@@ -554,7 +610,11 @@ mod tests {
         ];
         for &(time, expected) in cases {
             let code = totp(RFC_SECRET_ASCII, time, 30, "SHA1", 8).unwrap();
-            assert_eq!(code, expected, "TOTP SHA1 time={} expected={} got={}", time, expected, code);
+            assert_eq!(
+                code, expected,
+                "TOTP SHA1 time={} expected={} got={}",
+                time, expected, code
+            );
         }
     }
 
@@ -570,7 +630,11 @@ mod tests {
         ];
         for &(time, expected) in cases {
             let code = totp(RFC_SECRET_SHA256, time, 30, "SHA256", 8).unwrap();
-            assert_eq!(code, expected, "TOTP SHA256 time={} expected={} got={}", time, expected, code);
+            assert_eq!(
+                code, expected,
+                "TOTP SHA256 time={} expected={} got={}",
+                time, expected, code
+            );
         }
     }
 
@@ -586,7 +650,11 @@ mod tests {
         ];
         for &(time, expected) in cases {
             let code = totp(RFC_SECRET_SHA512, time, 30, "SHA512", 8).unwrap();
-            assert_eq!(code, expected, "TOTP SHA512 time={} expected={} got={}", time, expected, code);
+            assert_eq!(
+                code, expected,
+                "TOTP SHA512 time={} expected={} got={}",
+                time, expected, code
+            );
         }
     }
 
@@ -660,15 +728,27 @@ mod tests {
         assert!(code.chars().all(|c| c.is_ascii_digit()));
 
         let hotp_code = hotp(&secret, 59206573, "SHA1", 6).unwrap();
-        assert_eq!(code, hotp_code, "totp(time/period) must equal hotp(counter)");
-        assert_eq!(code, "459480", "TOTP JBSWY3DPEHPK3PXP@1776197214 should be 459480");
+        assert_eq!(
+            code, hotp_code,
+            "totp(time/period) must equal hotp(counter)"
+        );
+        assert_eq!(
+            code, "459480",
+            "TOTP JBSWY3DPEHPK3PXP@1776197214 should be 459480"
+        );
     }
 
     #[test]
     fn test_strip_trailing_nulls_compat() {
         // Verify the helper still works (used in dpapi_legacy)
-        assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b"hello\0\0\0"), b"hello");
-        assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b"hello"), b"hello");
+        assert_eq!(
+            crate::dpapi_legacy::strip_trailing_nulls(b"hello\0\0\0"),
+            b"hello"
+        );
+        assert_eq!(
+            crate::dpapi_legacy::strip_trailing_nulls(b"hello"),
+            b"hello"
+        );
         assert_eq!(crate::dpapi_legacy::strip_trailing_nulls(b""), b"");
     }
 
@@ -681,13 +761,17 @@ mod tests {
         let store = JsonStore::new();
         let _ = handle("totp_delete", &json!({"name": "__test_kr_rg__"}), &store);
 
-        let reg = handle("totp_register", &json!({
-            "name": "__test_kr_rg__",
-            "secret": "JBSWY3DPEHPK3PXP",
-            "algorithm": "SHA1",
-            "digits": 6,
-            "period": 30,
-        }), &store);
+        let reg = handle(
+            "totp_register",
+            &json!({
+                "name": "__test_kr_rg__",
+                "secret": "JBSWY3DPEHPK3PXP",
+                "algorithm": "SHA1",
+                "digits": 6,
+                "period": 30,
+            }),
+            &store,
+        );
         assert_eq!(reg["success"], true, "Register failed: {:?}", reg);
 
         let gen = handle("totp_generate", &json!({"name": "__test_kr_rg__"}), &store);
@@ -699,7 +783,11 @@ mod tests {
         let secret_bytes = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         let now = Utc::now().timestamp() as u64;
         let expected = totp(&secret_bytes, now, 30, "SHA1", 6).unwrap();
-        assert_eq!(code, expected, "Keyring pipeline code '{}' != direct code '{}'", code, expected);
+        assert_eq!(
+            code, expected,
+            "Keyring pipeline code '{}' != direct code '{}'",
+            code, expected
+        );
 
         let _ = handle("totp_delete", &json!({"name": "__test_kr_rg__"}), &store);
     }
@@ -710,10 +798,14 @@ mod tests {
         let store = JsonStore::new();
         let _ = handle("totp_delete", &json!({"name": "__test_kr_uri__"}), &store);
 
-        let reg = handle("totp_register_from_uri", &json!({
-            "name": "__test_kr_uri__",
-            "uri": "otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example",
-        }), &store);
+        let reg = handle(
+            "totp_register_from_uri",
+            &json!({
+                "name": "__test_kr_uri__",
+                "uri": "otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example",
+            }),
+            &store,
+        );
         assert_eq!(reg["success"], true, "URI register failed: {:?}", reg);
 
         let gen = handle("totp_generate", &json!({"name": "__test_kr_uri__"}), &store);
@@ -723,7 +815,11 @@ mod tests {
         let secret_bytes = decode_base32("JBSWY3DPEHPK3PXP").unwrap();
         let now = Utc::now().timestamp() as u64;
         let expected = totp(&secret_bytes, now, 30, "SHA1", 6).unwrap();
-        assert_eq!(code, expected, "URI pipeline code '{}' != direct code '{}'", code, expected);
+        assert_eq!(
+            code, expected,
+            "URI pipeline code '{}' != direct code '{}'",
+            code, expected
+        );
 
         let _ = handle("totp_delete", &json!({"name": "__test_kr_uri__"}), &store);
     }
@@ -739,20 +835,33 @@ mod tests {
 
         for (name, secret) in &secrets {
             let _ = handle("totp_delete", &json!({"name": name}), &store);
-            let r = handle("totp_register", &json!({
-                "name": name, "secret": secret,
-            }), &store);
+            let r = handle(
+                "totp_register",
+                &json!({
+                    "name": name, "secret": secret,
+                }),
+                &store,
+            );
             assert_eq!(r["success"], true, "Register failed for {}: {:?}", name, r);
         }
 
         let now = Utc::now().timestamp() as u64;
         for (name, secret) in &secrets {
             let gen = handle("totp_generate", &json!({"name": name}), &store);
-            assert!(gen.get("error").is_none(), "Generate failed for {}: {:?}", name, gen);
+            assert!(
+                gen.get("error").is_none(),
+                "Generate failed for {}: {:?}",
+                name,
+                gen
+            );
             let code = gen["code"].as_str().unwrap();
             let raw = decode_base32(secret).unwrap();
             let expected = totp(&raw, now, 30, "SHA1", 6).unwrap();
-            assert_eq!(code, expected, "Cross-contamination: {} expected {} got {}", name, expected, code);
+            assert_eq!(
+                code, expected,
+                "Cross-contamination: {} expected {} got {}",
+                name, expected, code
+            );
         }
 
         for (name, _) in &secrets {
@@ -774,18 +883,33 @@ mod tests {
         let store = JsonStore::new();
         let _ = handle("totp_delete", &json!({"name": "__test_kr_hash__"}), &store);
 
-        let reg = handle("totp_register", &json!({
-            "name": "__test_kr_hash__",
-            "secret": "JBSWY3DPEHPK3PXP",
-        }), &store);
+        let reg = handle(
+            "totp_register",
+            &json!({
+                "name": "__test_kr_hash__",
+                "secret": "JBSWY3DPEHPK3PXP",
+            }),
+            &store,
+        );
         assert_eq!(reg["success"], true, "Register failed: {:?}", reg);
 
         let data: TotpStore = store.load_or_default(FILE);
-        let entry = data.entries.iter().find(|e| e.name == "__test_kr_hash__").unwrap();
+        let entry = data
+            .entries
+            .iter()
+            .find(|e| e.name == "__test_kr_hash__")
+            .unwrap();
         assert!(entry.secret_hash.is_some(), "secret_hash should be set");
-        assert!(entry.encrypted_secret.is_none(), "encrypted_secret should be None for new entries");
+        assert!(
+            entry.encrypted_secret.is_none(),
+            "encrypted_secret should be None for new entries"
+        );
 
-        let gen = handle("totp_generate", &json!({"name": "__test_kr_hash__"}), &store);
+        let gen = handle(
+            "totp_generate",
+            &json!({"name": "__test_kr_hash__"}),
+            &store,
+        );
         assert!(gen.get("error").is_none(), "Generate failed: {:?}", gen);
 
         let _ = handle("totp_delete", &json!({"name": "__test_kr_hash__"}), &store);
@@ -807,8 +931,11 @@ mod tests {
             let encoded = base64_encode(data);
             let decoded = base64_decode(&encoded).unwrap();
             assert_eq!(
-                data.to_vec(), decoded,
-                "Base64 roundtrip failed for case {}: {} bytes", i, data.len()
+                data.to_vec(),
+                decoded,
+                "Base64 roundtrip failed for case {}: {} bytes",
+                i,
+                data.len()
             );
         }
     }
@@ -832,7 +959,9 @@ mod tests {
         let hash = {
             use sha2::Digest;
             sha2::Sha256::digest(plaintext_secret.as_bytes())
-                .iter().map(|b| format!("{:02x}", b)).collect::<String>()
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
         };
 
         let mut data: TotpStore = store.load_or_default(FILE);
@@ -854,25 +983,48 @@ mod tests {
 
         // Run migration twice
         let r1 = crate::migrate::migrate_dpapi_to_keyring(&store);
-        assert!(r1.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
-            "Migration 1 had errors: {:?}", r1);
-        assert!(r1["migrated_totp"].as_u64().unwrap_or(0) >= 1,
-            "Expected at least 1 TOTP migrated: {:?}", r1);
+        assert!(
+            r1.get("errors")
+                .and_then(|e| e.as_array())
+                .map_or(true, |a| a.is_empty()),
+            "Migration 1 had errors: {:?}",
+            r1
+        );
+        assert!(
+            r1["migrated_totp"].as_u64().unwrap_or(0) >= 1,
+            "Expected at least 1 TOTP migrated: {:?}",
+            r1
+        );
 
         let r2 = crate::migrate::migrate_dpapi_to_keyring(&store);
-        assert!(r2.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
-            "Migration 2 (idempotent) had errors: {:?}", r2);
-        assert_eq!(r2["migrated_totp"].as_u64().unwrap_or(99), 0,
-            "Expected 0 TOTP migrated on second run: {:?}", r2);
+        assert!(
+            r2.get("errors")
+                .and_then(|e| e.as_array())
+                .map_or(true, |a| a.is_empty()),
+            "Migration 2 (idempotent) had errors: {:?}",
+            r2
+        );
+        assert_eq!(
+            r2["migrated_totp"].as_u64().unwrap_or(99),
+            0,
+            "Expected 0 TOTP migrated on second run: {:?}",
+            r2
+        );
 
         // Verify keyring has the secret
         let kr = keyring_store::get("totp", test_name).unwrap();
-        assert_eq!(kr, plaintext_secret, "Keyring secret mismatch after migration");
+        assert_eq!(
+            kr, plaintext_secret,
+            "Keyring secret mismatch after migration"
+        );
 
         // Verify JSON no longer has encrypted_secret
         let data2: TotpStore = store.load_or_default(FILE);
         let e = data2.entries.iter().find(|e| e.name == test_name).unwrap();
-        assert!(e.encrypted_secret.is_none(), "encrypted_secret should be cleared after migration");
+        assert!(
+            e.encrypted_secret.is_none(),
+            "encrypted_secret should be cleared after migration"
+        );
 
         // Cleanup
         let _ = handle("totp_delete", &json!({"name": test_name}), &store);
@@ -883,7 +1035,7 @@ mod tests {
     fn test_migration_tool_dpapi_to_keyring() {
         let _g = STORE_LOCK.lock().unwrap();
         // Create a DPAPI-encrypted credential entry, run migrate, verify keyring has plaintext.
-        use crate::credential::{CredentialStore, CredentialMeta};
+        use crate::credential::{CredentialMeta, CredentialStore};
         let store = JsonStore::new();
         let test_name = "__test_migrate_cred__";
         let _ = keyring_store::delete("cred", test_name);
@@ -908,17 +1060,37 @@ mod tests {
         store.save(crate::credential::FILE, &cdata).unwrap();
 
         let result = crate::migrate::migrate_dpapi_to_keyring(&store);
-        assert!(result.get("errors").and_then(|e| e.as_array()).map_or(true, |a| a.is_empty()),
-            "Migration had errors: {:?}", result);
-        assert!(result["migrated_credentials"].as_u64().unwrap_or(0) >= 1,
-            "Expected at least 1 credential migrated: {:?}", result);
+        assert!(
+            result
+                .get("errors")
+                .and_then(|e| e.as_array())
+                .map_or(true, |a| a.is_empty()),
+            "Migration had errors: {:?}",
+            result
+        );
+        assert!(
+            result["migrated_credentials"].as_u64().unwrap_or(0) >= 1,
+            "Expected at least 1 credential migrated: {:?}",
+            result
+        );
 
         let kr = keyring_store::get("cred", test_name).unwrap();
-        assert_eq!(kr, plaintext, "Keyring value mismatch: expected '{}', got '{}'", plaintext, kr);
+        assert_eq!(
+            kr, plaintext,
+            "Keyring value mismatch: expected '{}', got '{}'",
+            plaintext, kr
+        );
 
         let cdata2: CredentialStore = store.load_or_default(crate::credential::FILE);
-        let c = cdata2.credentials.iter().find(|c| c.name == test_name).unwrap();
-        assert!(c.encrypted_value.is_none(), "encrypted_value should be cleared after migration");
+        let c = cdata2
+            .credentials
+            .iter()
+            .find(|c| c.name == test_name)
+            .unwrap();
+        assert!(
+            c.encrypted_value.is_none(),
+            "encrypted_value should be cleared after migration"
+        );
 
         // Cleanup
         let _ = keyring_store::delete("cred", test_name);

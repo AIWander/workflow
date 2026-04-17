@@ -20,9 +20,10 @@ pub fn is_disabled() -> bool {
 /// Store a secret under a (namespace, name) pair.
 /// namespace is "cred" or "totp". name is the user-facing entry name.
 pub fn set(namespace: &str, name: &str, secret: &str) -> Result<()> {
-    let entry = Entry::new(SERVICE, &format!("{namespace}:{name}"))
-        .context("creating keyring entry")?;
-    entry.set_password(secret)
+    let entry =
+        Entry::new(SERVICE, &format!("{namespace}:{name}")).context("creating keyring entry")?;
+    entry
+        .set_password(secret)
         .context("storing secret in keyring")?;
     Ok(())
 }
@@ -30,8 +31,8 @@ pub fn set(namespace: &str, name: &str, secret: &str) -> Result<()> {
 /// Retrieve a secret. Returns None if the entry does not exist.
 /// Other keyring errors are propagated.
 pub fn get_or_none(namespace: &str, name: &str) -> Result<Option<String>> {
-    let entry = Entry::new(SERVICE, &format!("{namespace}:{name}"))
-        .context("creating keyring entry")?;
+    let entry =
+        Entry::new(SERVICE, &format!("{namespace}:{name}")).context("creating keyring entry")?;
     match entry.get_password() {
         Ok(s) => Ok(Some(s)),
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -47,8 +48,8 @@ pub fn get(namespace: &str, name: &str) -> Result<String> {
 
 /// Delete a secret. No-ops silently if the entry does not exist.
 pub fn delete(namespace: &str, name: &str) -> Result<()> {
-    let entry = Entry::new(SERVICE, &format!("{namespace}:{name}"))
-        .context("creating keyring entry")?;
+    let entry =
+        Entry::new(SERVICE, &format!("{namespace}:{name}")).context("creating keyring entry")?;
     match entry.delete_credential() {
         Ok(_) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
@@ -75,17 +76,17 @@ pub fn probe() -> Result<()> {
     let sentinel = format!("sentinel_{}", nanos);
 
     // Write via first Entry instance
-    let writer = Entry::new("cpc_workflow_probe", &probe_user)
-        .context("probe: creating writer entry")?;
-    writer.set_password(&sentinel)
+    let writer =
+        Entry::new("cpc_workflow_probe", &probe_user).context("probe: creating writer entry")?;
+    writer
+        .set_password(&sentinel)
         .context("probe: set failed")?;
     drop(writer);
 
     // Read via a fresh Entry instance — catches mock backends
-    let reader = Entry::new("cpc_workflow_probe", &probe_user)
-        .context("probe: creating reader entry")?;
-    let read = reader.get_password()
-        .context("probe: get failed")?;
+    let reader =
+        Entry::new("cpc_workflow_probe", &probe_user).context("probe: creating reader entry")?;
+    let read = reader.get_password().context("probe: get failed")?;
 
     // Cleanup — ignore errors
     let _ = reader.delete_credential();

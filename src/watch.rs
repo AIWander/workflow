@@ -34,7 +34,9 @@ pub struct Watch {
     pub task_id: Option<String>,
 }
 
-fn default_poll_interval() -> u64 { 300 }
+fn default_poll_interval() -> u64 {
+    300
+}
 
 const FILE: &str = "watches.json";
 
@@ -63,9 +65,18 @@ fn watch_define(args: &Value, store: &JsonStore) -> Value {
         Some(c) => c.to_string(),
         None => return json!({"error": "condition is required"}),
     };
-    let action_flow = args.get("action_flow").and_then(|v| v.as_str()).map(String::from);
-    let poll_interval = args.get("poll_interval_seconds").and_then(|v| v.as_u64()).unwrap_or(300);
-    let active_hours = args.get("active_hours").and_then(|v| v.as_str()).map(String::from);
+    let action_flow = args
+        .get("action_flow")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let poll_interval = args
+        .get("poll_interval_seconds")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(300);
+    let active_hours = args
+        .get("active_hours")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let mut data: WatchStore = store.load_or_default(FILE);
     data.watches.retain(|w| w.name != name);
@@ -94,17 +105,23 @@ fn watch_define(args: &Value, store: &JsonStore) -> Value {
 fn watch_list(_args: &Value, store: &JsonStore) -> Value {
     let data: WatchStore = store.load_or_default(FILE);
 
-    let watches: Vec<Value> = data.watches.iter().map(|w| json!({
-        "name": w.name,
-        "check_tool": w.check_tool,
-        "condition": w.condition,
-        "poll_interval_seconds": w.poll_interval_seconds,
-        "last_check": w.last_check,
-        "last_result": w.last_result,
-        "is_active": w.is_active,
-        "action_flow": w.action_flow,
-        "active_hours": w.active_hours,
-    })).collect();
+    let watches: Vec<Value> = data
+        .watches
+        .iter()
+        .map(|w| {
+            json!({
+                "name": w.name,
+                "check_tool": w.check_tool,
+                "condition": w.condition,
+                "poll_interval_seconds": w.poll_interval_seconds,
+                "last_check": w.last_check,
+                "last_result": w.last_result,
+                "is_active": w.is_active,
+                "action_flow": w.action_flow,
+                "active_hours": w.active_hours,
+            })
+        })
+        .collect();
 
     json!({"watches": watches, "count": watches.len()})
 }
@@ -151,7 +168,10 @@ fn watch_schedule(args: &Value, store: &JsonStore) -> Value {
         Some(n) => n.to_string(),
         None => return json!({"error": "name is required"}),
     };
-    let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let enabled = args
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let mut data: WatchStore = store.load_or_default(FILE);
     let watch = match data.watches.iter_mut().find(|w| w.name == name) {

@@ -82,7 +82,10 @@ fn flow_record_start(args: &Value, store: &JsonStore) -> Value {
         Some(n) => n.to_string(),
         None => return json!({"error": "name is required"}),
     };
-    let description = args.get("description").and_then(|v| v.as_str()).map(String::from);
+    let description = args
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let mut data: FlowStore = store.load_or_default(FILE);
 
@@ -138,15 +141,29 @@ fn flow_record_step(args: &Value, store: &JsonStore) -> Value {
     flow.steps.push(FlowStep {
         tool_name,
         tool_params,
-        result_summary: args.get("result_summary").and_then(|v| v.as_str()).map(String::from),
-        screenshot_path: args.get("screenshot_path").and_then(|v| v.as_str()).map(String::from),
-        expected_url: args.get("expected_url").and_then(|v| v.as_str()).map(String::from),
-        expected_text: args.get("expected_text").and_then(|v| v.as_str()).map(String::from),
+        result_summary: args
+            .get("result_summary")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        screenshot_path: args
+            .get("screenshot_path")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        expected_url: args
+            .get("expected_url")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        expected_text: args
+            .get("expected_text")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         recorded_at: Utc::now().to_rfc3339(),
     });
 
     match store.save(FILE, &data) {
-        Ok(_) => json!({"success": true, "flow": name, "step": step_num, "total_steps": step_num + 1}),
+        Ok(_) => {
+            json!({"success": true, "flow": name, "step": step_num, "total_steps": step_num + 1})
+        }
         Err(e) => json!({"error": format!("Failed to save: {}", e)}),
     }
 }
@@ -178,7 +195,9 @@ fn flow_record_stop(args: &Value, store: &JsonStore) -> Value {
     }
 
     match store.save(FILE, &data) {
-        Ok(_) => json!({"success": true, "name": name, "steps_count": steps_count, "status": "ready"}),
+        Ok(_) => {
+            json!({"success": true, "name": name, "steps_count": steps_count, "status": "ready"})
+        }
         Err(e) => json!({"error": format!("Failed to save: {}", e)}),
     }
 }
@@ -188,9 +207,18 @@ fn flow_replay(args: &Value, store: &JsonStore) -> Value {
         Some(n) => n,
         None => return json!({"error": "name is required"}),
     };
-    let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
-    let start_from = args.get("start_from_step").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let _adapt = args.get("adapt_on_failure").and_then(|v| v.as_bool()).unwrap_or(true);
+    let dry_run = args
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let start_from = args
+        .get("start_from_step")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let _adapt = args
+        .get("adapt_on_failure")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let mut data: FlowStore = store.load_or_default(FILE);
     let flow = match data.flows.iter_mut().find(|f| f.name == name) {
@@ -203,15 +231,20 @@ fn flow_replay(args: &Value, store: &JsonStore) -> Value {
     }
 
     // Return steps for the calling session to execute
-    let steps: Vec<Value> = flow.steps.iter().enumerate()
+    let steps: Vec<Value> = flow
+        .steps
+        .iter()
+        .enumerate()
         .skip(start_from)
-        .map(|(i, step)| json!({
-            "step": i,
-            "tool_name": step.tool_name,
-            "tool_params": step.tool_params,
-            "expected_url": step.expected_url,
-            "expected_text": step.expected_text,
-        }))
+        .map(|(i, step)| {
+            json!({
+                "step": i,
+                "tool_name": step.tool_name,
+                "tool_params": step.tool_params,
+                "expected_url": step.expected_url,
+                "expected_text": step.expected_text,
+            })
+        })
         .collect();
 
     flow.last_run = Some(Utc::now().to_rfc3339());
@@ -236,8 +269,14 @@ fn flow_adapt(args: &Value, store: &JsonStore) -> Value {
         Some(s) => s as usize,
         None => return json!({"error": "failed_step is required"}),
     };
-    let screenshot_path = args.get("screenshot_path").and_then(|v| v.as_str()).unwrap_or("");
-    let error_message = args.get("error_message").and_then(|v| v.as_str()).unwrap_or("");
+    let screenshot_path = args
+        .get("screenshot_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let error_message = args
+        .get("error_message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let data: FlowStore = store.load_or_default(FILE);
     let flow = match data.flows.iter().find(|f| f.name == name) {
@@ -247,14 +286,18 @@ fn flow_adapt(args: &Value, store: &JsonStore) -> Value {
 
     let step = match flow.steps.get(failed_step) {
         Some(s) => s,
-        None => return json!({"error": format!("Step {} not found in flow '{}'", failed_step, name)}),
+        None => {
+            return json!({"error": format!("Step {} not found in flow '{}'", failed_step, name)})
+        }
     };
 
     // Analyze the failure and suggest adaptation
     let has_selector = step.tool_params.get("selector").is_some();
     let has_a11y_ref = step.tool_params.get("a11y_ref").is_some();
 
-    let (analysis, adapted_step, confidence) = if error_message.contains("not found") || error_message.contains("No element") {
+    let (analysis, adapted_step, confidence) = if error_message.contains("not found")
+        || error_message.contains("No element")
+    {
         if has_selector && !has_a11y_ref {
             // Selector-based step failed — suggest using a11y_ref instead
             let mut new_params = step.tool_params.clone();
@@ -286,7 +329,10 @@ fn flow_adapt(args: &Value, store: &JsonStore) -> Value {
         )
     } else {
         (
-            format!("Step failed with: {}. Consider re-recording.", error_message),
+            format!(
+                "Step failed with: {}. Consider re-recording.",
+                error_message
+            ),
             json!({"tool_name": step.tool_name, "tool_params": step.tool_params}),
             "low",
         )
@@ -318,12 +364,22 @@ fn flow_dispatch(args: &Value, store: &JsonStore) -> Value {
         Some(s) => s.to_string(),
         None => return json!({"error": "schedule is required (cron expression or interval)"}),
     };
-    let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-    let notify_on_failure = args.get("notify_on_failure").and_then(|v| v.as_bool()).unwrap_or(true);
+    let enabled = args
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let notify_on_failure = args
+        .get("notify_on_failure")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // Verify flow exists
     let flows: FlowStore = store.load_or_default(FILE);
-    if !flows.flows.iter().any(|f| f.name == name && f.status == "ready") {
+    if !flows
+        .flows
+        .iter()
+        .any(|f| f.name == name && f.status == "ready")
+    {
         return json!({"error": format!("Flow '{}' not found or not ready", name)});
     }
 
@@ -361,10 +417,16 @@ fn flow_list(args: &Value, store: &JsonStore) -> Value {
     let filter = args.get("filter").and_then(|v| v.as_str());
     let filter_re = filter.and_then(|f| regex::Regex::new(f).ok());
 
-    let flows: Vec<Value> = data.flows.iter()
+    let flows: Vec<Value> = data
+        .flows
+        .iter()
         .filter(|f| {
             if let Some(ref re) = filter_re {
-                re.is_match(&f.name) || f.description.as_deref().map(|d| re.is_match(d)).unwrap_or(false)
+                re.is_match(&f.name)
+                    || f.description
+                        .as_deref()
+                        .map(|d| re.is_match(d))
+                        .unwrap_or(false)
             } else {
                 true
             }

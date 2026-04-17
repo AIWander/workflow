@@ -9,7 +9,7 @@ use anyhow::Result;
 #[cfg(windows)]
 pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
-        CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
     let mut input = CRYPT_INTEGER_BLOB {
@@ -33,7 +33,9 @@ pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
         )?;
 
         let result = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output.pbData as *mut _));
+        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            output.pbData as *mut _,
+        ));
         Ok(result)
     }
 }
@@ -41,7 +43,7 @@ pub fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
 #[cfg(windows)]
 pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
-        CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
     let mut input = CRYPT_INTEGER_BLOB {
@@ -65,7 +67,9 @@ pub fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>> {
         )?;
 
         let result = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output.pbData as *mut _));
+        windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            output.pbData as *mut _,
+        ));
         Ok(result)
     }
 }
