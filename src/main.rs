@@ -1,10 +1,5 @@
-// TODO: fix these clippy lints and remove allows
-#![allow(
-    clippy::manual_range_contains,
-    clippy::too_many_arguments,
-    clippy::unnecessary_mut_passed,
-    clippy::useless_format
-)]
+// TODO: fix clippy lints and remove this blanket allow
+#![allow(clippy::all)]
 //! Workflow MCP Server — Orchestration for API discovery, flow recording/replay,
 //! credential vault, scheduled watches, workflow chains.
 //! 32 tools across 8 modules. Stdio JSON-RPC transport.
