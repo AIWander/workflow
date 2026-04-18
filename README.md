@@ -2,6 +2,8 @@
 
 API pattern storage and replay, DPAPI-encrypted credential vault, data transform pipelines, watch polling, and workflow chains — all through one MCP server. Single Rust binary, 30 tools, zero runtime dependencies.
 
+**Part of [CPC](https://github.com/josephwander-arch) (Cognitive Performance Computing)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/josephwander-arch/manager) · [local](https://github.com/josephwander-arch/local) · [hands](https://github.com/josephwander-arch/hands) · [cpc-paths](https://github.com/josephwander-arch/cpc-paths) · [cpc-breadcrumbs](https://github.com/josephwander-arch/cpc-breadcrumbs)
+
 **Workflow is the graduation pipeline partner for [hands](https://github.com/josephwander-arch/hands).** Use hands to automate a browser task once, capture the underlying API calls with `hands:browser_learn_api`, store them with `workflow:api_store`, then replay via direct HTTP forever. No browser needed on future runs. 100x faster.
 
 ## What's New — v1.3.4
@@ -103,6 +105,7 @@ See `claude_desktop_config.example.json` for the full snippet with both architec
 
 - **Windows 10/11** — DPAPI credential encryption requires Windows. On other platforms, credentials are stored unencrypted (development/testing only).
 - No Node.js, no Python, no runtime dependencies.
+- **Keyring integration** — credentials are stored in the OS keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service). The `windows-native` Cargo feature flag enables DPAPI-specific paths for Windows deployments.
 
 ### Verify Installation
 
@@ -111,6 +114,16 @@ Run `doctor.ps1` to check your setup:
 ```powershell
 .\doctor.ps1
 ```
+
+### Build from Source
+
+```bash
+git clone https://github.com/josephwander-arch/workflow.git
+cd workflow
+cargo build --release
+```
+
+Binary appears at `target/release/workflow.exe`. Requires Rust stable toolchain — nightly is not required.
 
 ## Quickstart — The Graduation Flow
 
@@ -223,7 +236,7 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues welcome; PRs considered but this is primarily maintained as part of the CPC stack.
 
 ## Contact
 
