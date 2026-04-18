@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.5 - 2026-04-17
+
+### Changed
+
+- **Clippy + dead_code cleanup** -- removed 2 crate-level `#![allow(...)]` suppressions, replaced with targeted item-level `#[allow(...)]` with justification comments where suppression is still needed.
+
 ## v1.3.4 - 2026-04-16
 
 ### Fixed
