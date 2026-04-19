@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/josephwander-arch/workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/josephwander-arch/workflow/actions/workflows/ci.yml)
 
-API pattern storage and replay, DPAPI-encrypted credential vault, data transform pipelines, watch polling, and workflow chains — all through one MCP server. Single Rust binary, 30 tools, zero runtime dependencies.
+API pattern storage and replay, DPAPI-encrypted credential vault, data transform pipelines, watch polling, and workflow chains — all through one MCP server. Single Rust binary, 37 tools, zero runtime dependencies.
 
 **Part of [CPC](https://github.com/josephwander-arch) (Cognitive Performance Computing)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/josephwander-arch/manager) · [local](https://github.com/josephwander-arch/local) · [hands](https://github.com/josephwander-arch/hands) · [cpc-paths](https://github.com/josephwander-arch/cpc-paths) · [cpc-breadcrumbs](https://github.com/josephwander-arch/cpc-breadcrumbs)
 
@@ -62,7 +62,7 @@ Day N: Direct HTTP replay (workflow:api_call)
 |----------|-------|-------------|
 | Flows | `flow_record_start`, `flow_record_step`, `flow_record_stop`, `flow_replay`, `flow_adapt`, `flow_dispatch`, `flow_list`, `flow_delete` | Record and replay multi-step MCP tool sequences. 1 test flow stored, never run in production. Use for prototyping. A follow-up release will harden based on real-world usage. |
 
-**30 tools total** across 6 modules.
+**37 tools total** across 7 modules.
 
 ## Install
 
@@ -217,7 +217,7 @@ Host clients: Claude Desktop (`claude_desktop_config.json`), Claude Code (`~/.cl
 
 ### First-run tip for Claude clients
 
-Turn on **tools always loaded** in Claude's tool settings. Workflow exposes 30 tools across 6 modules — API patterns, credentials, transforms, watches, workflows, flows — and first-run discovery can miss subsets if lazy-loading is on. Always-loaded makes the full surface visible immediately.
+Turn on **tools always loaded** in Claude's tool settings. Workflow exposes 37 tools across 7 modules — API patterns, credentials, transforms, watches, workflows, flows — and first-run discovery can miss subsets if lazy-loading is on. Always-loaded makes the full surface visible immediately.
 
 ## Failure modes
 

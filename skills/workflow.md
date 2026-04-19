@@ -13,7 +13,7 @@ description: |
 Workflow is a single Rust binary that gives you API pattern storage with live
 HTTP replay, a Windows DPAPI-encrypted credential vault, flow recording and
 adaptive replay, scheduled watch polling, JSON transform pipelines, and
-trigger→action workflow chains — all over MCP. 31 tools across 7 modules, zero
+trigger→action workflow chains — all over MCP. 37 tools across 7 modules, zero
 runtime dependencies beyond Rust, one process.
 
 This skill teaches you how to use it effectively, not just what tools exist.
@@ -73,7 +73,7 @@ a browser window ever opening.
 
 ## Tool Reference
 
-31 tools across 7 categories. Every tool name below is verified against source.
+37 tools across 7 categories. Every tool name below is verified against source.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "Workflow MCP Server — API Discovery, Credential Vault, and 2FA Automation for AI Agents"
-description: "Getting started guide for the Workflow Rust MCP server. Gives Claude and other AI agents 36 tools for API discovery, DPAPI-secured credential management, flow recording/replay, watch/polling, data piping, workflow chains, and TOTP/HOTP 2FA automation over the Model Context Protocol."
+description: "Getting started guide for the Workflow Rust MCP server. Gives Claude and other AI agents 37 tools for API discovery, DPAPI-secured credential management, flow recording/replay, watch/polling, data piping, workflow chains, and TOTP/HOTP 2FA automation over the Model Context Protocol."
 keywords:
   - MCP server
   - model context protocol server
@@ -24,7 +24,7 @@ keywords:
 
 # Getting Started with Workflow
 
-Workflow is a Rust MCP server that provides 36 tools for end-to-end automation across seven modules: API Discovery, Credential Vault (DPAPI-encrypted), Flow Recording/Replay, Watch/Polling, Data Piping, Workflow Chains, and TOTP/HOTP 2FA generation. It ships as a single binary with no runtime dependencies and connects to Claude Desktop, Claude Code, or any MCP-compatible client over standard JSON-RPC on stdin/stdout.
+Workflow is a Rust MCP server that provides 37 tools for end-to-end automation across seven modules: API Discovery, Credential Vault (DPAPI-encrypted), Flow Recording/Replay, Watch/Polling, Data Piping, Workflow Chains, and TOTP/HOTP 2FA generation. It ships as a single binary with no runtime dependencies and connects to Claude Desktop, Claude Code, or any MCP-compatible client over standard JSON-RPC on stdin/stdout.
 
 Credentials are encrypted at rest using Windows DPAPI, meaning secrets never leave the machine in plaintext and are bound to the current Windows user profile. No external vault, no environment variables, no config files with secrets in the clear.
 
@@ -48,8 +48,8 @@ The output binary lands at `target/release/workflow.exe`. It is a single file wi
 ### Pre-built binaries
 
 Download the latest Windows binaries from the [Releases page](https://github.com/josephwander-arch/workflow/releases/latest):
-- `workflow_v1.3.4_windows_x64.exe` --- Windows x64
-- `workflow_v1.3.4_windows_arm64.exe` --- Windows ARM64
+- `workflow-v1.3.5-x64.exe` --- Windows x64
+- `workflow-v1.3.5-aarch64.exe` --- Windows ARM64
 
 ### Configure for Claude Desktop
 
@@ -81,7 +81,7 @@ Add it to `~/.claude/mcp.json` (global) or `.mcp.json` (per-project):
 }
 ```
 
-Restart Claude Desktop or Claude Code after editing. The 36 tools will appear in your tool list.
+Restart Claude Desktop or Claude Code after editing. The 37 tools will appear in your tool list.
 
 ## Architecture Overview
 
