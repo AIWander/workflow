@@ -841,7 +841,7 @@ workflow chains. Experimental flow recording.
 
 ---
 
-## Quick Reference — All 31 Tools
+## Quick Reference — All 37 Tools
 
 | Category | Tool | Description |
 |----------|------|-------------|
