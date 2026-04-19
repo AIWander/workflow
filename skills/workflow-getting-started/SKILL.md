@@ -5,7 +5,7 @@ description: 'Getting started with Workflow — the 37-tool automation server fo
 
 ## What Workflow Is
 
-A single MCP server (workflow.exe) with 36 tools across 7 modules. It handles automation infrastructure: credentials, API patterns, recorded flows, scheduled watches, data transforms, and 2FA codes.
+A single MCP server (workflow.exe) with 37 tools across 7 modules. It handles automation infrastructure: credentials, API patterns, recorded flows, scheduled watches, data transforms, and 2FA codes.
 
 | Module | Tools | What It Does |
 |--------|-------|-------------|
