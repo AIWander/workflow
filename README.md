@@ -4,7 +4,7 @@
 
 API pattern storage and replay, DPAPI-encrypted credential vault, data transform pipelines, watch polling, and workflow chains — all through one MCP server. Single Rust binary, 37 tools, zero runtime dependencies.
 
-**Part of [CPC](https://github.com/josephwander-arch) (Cognitive Performance Computing)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/josephwander-arch/manager) · [local](https://github.com/josephwander-arch/local) · [hands](https://github.com/josephwander-arch/hands) · [cpc-paths](https://github.com/josephwander-arch/cpc-paths) · [cpc-breadcrumbs](https://github.com/josephwander-arch/cpc-breadcrumbs)
+**Part of [CPC](https://github.com/josephwander-arch) (Copy Paste Compute)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/josephwander-arch/manager) · [local](https://github.com/josephwander-arch/local) · [hands](https://github.com/josephwander-arch/hands) · [cpc-paths](https://github.com/josephwander-arch/cpc-paths) · [cpc-breadcrumbs](https://github.com/josephwander-arch/cpc-breadcrumbs)
 
 **Workflow is the graduation pipeline partner for [hands](https://github.com/josephwander-arch/hands).** Use hands to automate a browser task once, capture the underlying API calls with `hands:browser_learn_api`, store them with `workflow:api_store`, then replay via direct HTTP forever. No browser needed on future runs. 100x faster.
 
