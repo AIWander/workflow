@@ -3,7 +3,7 @@ name = "workflow"
 version = "1.3.5"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/josephwander-arch/workflow"
+repository = "https://github.com/AIWander/workflow"
 description = "Workflow MCP server — credentials, TOTP, API pattern replay, flows, watches."
 
 [[bin]]
@@ -27,7 +27,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 data-encoding = "2"
 keyring = { version = "3", features = ["windows-native"] }
-cpc-paths = { git = "https://github.com/josephwander-arch/cpc-paths", tag = "v0.1.0" }
+cpc-paths = { git = "https://github.com/AIWander/cpc-paths", tag = "v0.1.0" }
 tiny_http = "0.12"
 
 [dev-dependencies]

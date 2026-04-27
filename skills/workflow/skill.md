@@ -740,7 +740,7 @@ hands:browser_learn_api()
 
 ### Where to find hands
 
-The hands MCP server is published at https://github.com/josephwander-arch/hands.
+The hands MCP server is published at https://github.com/AIWander/hands.
 See the hands skill reference for full tool documentation.
 
 ---

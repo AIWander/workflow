@@ -38,7 +38,7 @@ Credentials are encrypted at rest using Windows DPAPI, meaning secrets never lea
 ### Build from source
 
 ```bash
-git clone https://github.com/josephwander-arch/workflow.git
+git clone https://github.com/AIWander/workflow.git
 cd workflow
 cargo build --release -p workflow
 ```
@@ -47,7 +47,7 @@ The output binary lands at `target/release/workflow.exe`. It is a single file wi
 
 ### Pre-built binaries
 
-Download the latest Windows binaries from the [Releases page](https://github.com/josephwander-arch/workflow/releases/latest):
+Download the latest Windows binaries from the [Releases page](https://github.com/AIWander/workflow/releases/latest):
 - `workflow-v1.3.5-x64.exe` --- Windows x64
 - `workflow-v1.3.5-aarch64.exe` --- Windows ARM64
 

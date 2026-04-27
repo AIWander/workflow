@@ -1,12 +1,12 @@
 # Workflow MCP Server
 
-[![CI](https://github.com/josephwander-arch/workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/josephwander-arch/workflow/actions/workflows/ci.yml)
+[![CI](https://github.com/AIWander/workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/AIWander/workflow/actions/workflows/ci.yml)
 
 API pattern storage and replay, DPAPI-encrypted credential vault, data transform pipelines, watch polling, and workflow chains — all through one MCP server. Single Rust binary, 37 tools, zero runtime dependencies.
 
-**Part of [CPC](https://github.com/josephwander-arch) (Copy Paste Compute)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/josephwander-arch/manager) · [local](https://github.com/josephwander-arch/local) · [hands](https://github.com/josephwander-arch/hands) · [cpc-paths](https://github.com/josephwander-arch/cpc-paths) · [cpc-breadcrumbs](https://github.com/josephwander-arch/cpc-breadcrumbs)
+**Part of [CPC](https://github.com/AIWander) (Copy Paste Compute)** — a multi-agent AI orchestration platform. Related repos: [manager](https://github.com/AIWander/manager) · [local](https://github.com/AIWander/local) · [hands](https://github.com/AIWander/hands) · [cpc-paths](https://github.com/AIWander/cpc-paths) · [cpc-breadcrumbs](https://github.com/AIWander/cpc-breadcrumbs)
 
-**Workflow is the graduation pipeline partner for [hands](https://github.com/josephwander-arch/hands).** Use hands to automate a browser task once, capture the underlying API calls with `hands:browser_learn_api`, store them with `workflow:api_store`, then replay via direct HTTP forever. No browser needed on future runs. 100x faster.
+**Workflow is the graduation pipeline partner for [hands](https://github.com/AIWander/hands).** Use hands to automate a browser task once, capture the underlying API calls with `hands:browser_learn_api`, store them with `workflow:api_store`, then replay via direct HTTP forever. No browser needed on future runs. 100x faster.
 
 ## What's New — v1.3.5
 
@@ -68,7 +68,7 @@ Day N: Direct HTTP replay (workflow:api_call)
 
 ### Windows x64
 
-1. Download `workflow-v1.3.5-x64.exe` from the [latest release](https://github.com/josephwander-arch/workflow/releases/latest).
+1. Download `workflow-v1.3.5-x64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
 2. Rename to `workflow.exe` and place in `%LOCALAPPDATA%\CPC\servers\`.
 3. Add to your `claude_desktop_config.json`:
    ```json
@@ -86,7 +86,7 @@ Day N: Direct HTTP replay (workflow:api_call)
 
 ### Windows ARM64
 
-1. Download `workflow-v1.3.5-aarch64.exe` from the [latest release](https://github.com/josephwander-arch/workflow/releases/latest).
+1. Download `workflow-v1.3.5-aarch64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
 2. Rename to `workflow.exe` and place in `%LOCALAPPDATA%\CPC\servers\`.
 3. Add to your `claude_desktop_config.json`:
    ```json
@@ -113,7 +113,7 @@ For full per-machine setup (paths, credential vault setup, DPAPI notes), see [`d
 ### Build from Source
 
 ```bash
-git clone https://github.com/josephwander-arch/workflow.git
+git clone https://github.com/AIWander/workflow.git
 cd workflow
 cargo build --release
 ```
@@ -209,9 +209,9 @@ Workflow and hands are designed as two halves of the same pipeline.
 
 `workflow` runs standalone for API pattern replay, credential storage, watches, and transform pipelines. It pairs naturally with the rest of the CPC stack when you want end-to-end automation.
 
-- Pair with [hands](https://github.com/josephwander-arch/hands) for browser-side discovery (`browser_learn_api` captures the network traffic that workflow then stores and replays).
-- Pair with [local](https://github.com/josephwander-arch/local) when pipelines need local shell, file, or transform steps between API calls.
-- Pair with [manager](https://github.com/josephwander-arch/manager) to wrap workflow's replay tools in delegated tasks with breadcrumb tracking.
+- Pair with [hands](https://github.com/AIWander/hands) for browser-side discovery (`browser_learn_api` captures the network traffic that workflow then stores and replays).
+- Pair with [local](https://github.com/AIWander/local) when pipelines need local shell, file, or transform steps between API calls.
+- Pair with [manager](https://github.com/AIWander/manager) to wrap workflow's replay tools in delegated tasks with breadcrumb tracking.
 
 Host clients: Claude Desktop (`claude_desktop_config.json`), Claude Code (`~/.claude/mcp.json`), OpenAI Codex CLI, Gemini CLI, or any MCP-compatible host. The skill file at `skills/workflow.md` works standalone too — load it as an Anthropic skill for no-server behavioral guidance (planning, review, discipline reminders).
 
@@ -240,4 +240,4 @@ Issues welcome; PRs considered but this is primarily maintained as part of the C
 ## Contact
 
 Joseph Wander — josephwander@gmail.com
-GitHub: [github.com/josephwander-arch](https://github.com/josephwander-arch/)
+GitHub: [github.com/AIWander](https://github.com/AIWander/)

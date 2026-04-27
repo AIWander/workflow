@@ -22,7 +22,7 @@ workflow:api_store(
 ```
 workflow:api_call(
   name: "github_repo_issues",
-  params: {"owner": "josephwander-arch", "repo": "workflow", "state": "open", "limit": "10"}
+  params: {"owner": "AIWander", "repo": "workflow", "state": "open", "limit": "10"}
 )
 → {success: true, status: 200, response_time_ms: 234, body: [...]}
 ```
@@ -41,7 +41,7 @@ workflow:api_store(
 
 workflow:api_call(
   name: "create_github_issue",
-  params: {"owner": "josephwander-arch", "repo": "workflow", "title": "Bug report", "body": "Details here", "label": "bug"}
+  params: {"owner": "AIWander", "repo": "workflow", "title": "Bug report", "body": "Details here", "label": "bug"}
 )
 ```
 
@@ -66,7 +66,7 @@ Fetch data and reshape it in one flow:
 # Get open issues
 result = workflow:api_call(
   name: "github_repo_issues",
-  params: {"owner": "josephwander-arch", "repo": "workflow", "state": "open", "limit": "50"}
+  params: {"owner": "AIWander", "repo": "workflow", "state": "open", "limit": "50"}
 )
 
 # Transform: extract titles grouped by label
@@ -111,7 +111,7 @@ workflow:pipe_test(
 Always test after storing or updating a pattern:
 
 ```
-workflow:api_test(name: "github_repo_issues", params: {"owner": "josephwander-arch", "repo": "workflow", "state": "open", "limit": "1"})
+workflow:api_test(name: "github_repo_issues", params: {"owner": "AIWander", "repo": "workflow", "state": "open", "limit": "1"})
 → {works: true, status: 200, response_time_ms: 187}
 ```
 
