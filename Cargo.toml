@@ -23,7 +23,7 @@ uuid = { version = "1.6", features = ["v4"] }
 reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls"], default-features = false }
 directories = "5"
 hmac = "0.12"
-sha1 = "0.10"
+sha1 = "0.11"
 sha2 = "0.10"
 data-encoding = "2"
 keyring = { version = "3", features = ["windows-native"] }
