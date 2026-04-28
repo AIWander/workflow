@@ -163,7 +163,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "cpc-paths"
 version = "0.1.0"
-source = "git+https://github.com/josephwander-arch/cpc-paths?tag=v0.1.0#d78eea9a89a46b2d01aa471f64e13ccd61b126e6"
+source = "git+https://github.com/AIWander/cpc-paths?tag=v0.1.0#d78eea9a89a46b2d01aa471f64e13ccd61b126e6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1186,9 +1186,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.12"
+version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
+checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
 dependencies = [
  "ring",
  "rustls-pki-types",
