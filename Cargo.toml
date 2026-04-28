@@ -27,7 +27,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 data-encoding = "2"
 keyring = { version = "3", features = ["windows-native"] }
-cpc-paths = { git = "https://github.com/AIWander/cpc-paths", tag = "v0.1.0" }
+cpc-paths = { git = "https://github.com/AIWander/cpc-paths", tag = "v0.1.1" }
 tiny_http = "0.12"
 
 [dev-dependencies]
