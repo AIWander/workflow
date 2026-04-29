@@ -8,6 +8,11 @@
 - **SECURITY.md** — security policy and reporting instructions.
 - **Platform-split install docs** — README install section split into self-contained Windows x64 and ARM64 sub-sections.
 
+## v1.3.6 - 2026-04-29
+
+### Changed
+- ci: bump GitHub Actions versions to latest (Node.js 20 deprecation)
+
 ## v1.3.5 - 2026-04-17
 
 ### Changed
