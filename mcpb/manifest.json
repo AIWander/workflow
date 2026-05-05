@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "workflow",
+  "display_name": "CPC Workflow",
+  "version": "1.3.6",
+  "description": "API discovery, credential vault, flow recording, watches, and 2FA automation",
+  "long_description": "CPC Workflow provides API discovery from browser sessions, a credential vault with TOTP/HOTP generation, replayable flow recording, scheduled watches for change detection, and data piping between workflow steps.",
+  "author": {
+    "name": "AIWander",
+    "url": "https://github.com/AIWander/workflow"
+  },
+  "homepage": "https://github.com/AIWander/workflow",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AIWander/workflow"
+  },
+  "license": "MIT",
+  "keywords": ["mcp", "claude", "cpc", "credentials", "api", "2fa", "totp", "automation"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/workflow.exe",
+    "mcp_config": {
+      "command": "${__dirname}/server/workflow.exe",
+      "args": [],
+      "env": {
+        "VOLUMES_PATH": "${user_config.volumes_path}",
+        "WORKFLOW_DATA": "${user_config.workflow_data}"
+      }
+    }
+  },
+  "user_config": {
+    "volumes_path": {
+      "type": "directory",
+      "title": "Volumes path",
+      "description": "Where CPC knowledge base lives",
+      "default": "${HOME}/Documents/Volumes",
+      "required": false
+    },
+    "workflow_data": {
+      "type": "directory",
+      "title": "Workflow data directory",
+      "description": "Where workflow stores credentials, flows, and watches",
+      "default": "${HOME}/.cpc/workflow",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["win32"]
+  }
+}
