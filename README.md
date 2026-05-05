@@ -8,8 +8,12 @@ API pattern storage and replay, DPAPI-encrypted credential vault, data transform
 
 **Workflow is the graduation pipeline partner for [hands](https://github.com/AIWander/hands).** Use hands to automate a browser task once, capture the underlying API calls with `hands:browser_learn_api`, store them with `workflow:api_store`, then replay via direct HTTP forever. No browser needed on future runs. 100x faster.
 
-## What's New — v1.3.5
+## What's New — v1.3.6
 
+- **v1.3.6**
+  - New "Storing secrets without showing them to the AI" section
+  - New "Pushing through 2FA without you in the loop" section
+  - CI: bumped GitHub Actions versions to latest to address Node.js 20 deprecation
 - **v1.3.5** — Clippy + dead_code cleanup: removed 2 crate-level allows, added targeted item-level allows with justification.
 - **v1.3.4** — Fixed 69 UTF-8 mojibake sequences in skill reference files (em-dashes + arrows). Documentation-only patch.
 - **v1.3.3** — Cargo.toml metadata cleanup (license, repository, description fields).
@@ -68,7 +72,7 @@ Day N: Direct HTTP replay (workflow:api_call)
 
 ### Windows x64
 
-1. Download `workflow-v1.3.5-x64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
+1. Download `workflow-v1.3.6-x64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
 2. Rename to `workflow.exe` and place in `%LOCALAPPDATA%\CPC\servers\`.
 3. Add to your `claude_desktop_config.json`:
    ```json
@@ -86,7 +90,7 @@ Day N: Direct HTTP replay (workflow:api_call)
 
 ### Windows ARM64
 
-1. Download `workflow-v1.3.5-aarch64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
+1. Download `workflow-v1.3.6-aarch64.exe` from the [latest release](https://github.com/AIWander/workflow/releases/latest).
 2. Rename to `workflow.exe` and place in `%LOCALAPPDATA%\CPC\servers\`.
 3. Add to your `claude_desktop_config.json`:
    ```json
@@ -168,9 +172,28 @@ When the API breaks (token expired, endpoint changed), the response includes a `
 
 ## Key Concepts
 
-### Credential by Reference
+### Storing secrets without showing them to the AI
 
-Never hardcode tokens in API patterns. Store credentials by name in the DPAPI-encrypted vault, reference them via `credential_ref` in `api_store`. When tokens rotate, update one credential — all patterns that reference it automatically get the new value.
+Store the secret once with a separate PowerShell or MCP call,
+such as `New-StoredCredential` or `workflow:credential_store`,
+and let the OS keyring hold it: Windows Credential Manager, macOS Keychain,
+or Linux Secret Service. In chat, you only reference the stored name,
+for example `credential_ref: "github_token"`.
+
+At call time, the workflow server fetches the actual value from the OS keyring.
+The AI in chat never sees the secret. Naming convention:
+service=`cpc-workflow`, user=`{namespace}:{name}` where namespace is `cred` or `totp`.
+
+### Pushing through 2FA without you in the loop
+
+The first pass is setup only: Hands captures the QR code during 2FA enrollment, then workflow stores the decoded `otpauth://` URI as a TOTP entry in the OS keyring. After that, the long-lived secret stays out of chat.
+
+When a later login flow hits the code prompt, workflow generates the current 6-digit code on demand and Hands types it into the form. That lets 2FA-protected logins run unattended without pasting the seed secret into chat.
+
+1. `hands_scan_qr` captures the OTP setup QR code from the screen during initial 2FA enrollment.
+2. `workflow:totp_register_from_uri` stores the decoded `otpauth://` URI as a TOTP entry in the OS keyring.
+3. When a login flow needs the current code, `workflow:totp_generate("name")` produces it and `hands_login_recovery` (or any flow step) types it into the form.
+4. Result: site logins behind 2FA can be automated unattended, and the secret never appears in chat.
 
 ### Execution Model
 
